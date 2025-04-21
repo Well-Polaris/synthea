@@ -10,6 +10,7 @@ import com.google.gson.JsonObject;
 
 import java.awt.geom.Point2D;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,6 +32,7 @@ import org.hl7.fhir.r4.model.AllergyIntolerance;
 import org.hl7.fhir.r4.model.AllergyIntolerance.AllergyIntoleranceCategory;
 import org.hl7.fhir.r4.model.AllergyIntolerance.AllergyIntoleranceCriticality;
 import org.hl7.fhir.r4.model.AllergyIntolerance.AllergyIntoleranceType;
+import org.hl7.fhir.r4.model.Appointment;
 import org.hl7.fhir.r4.model.BooleanType;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent;
@@ -505,6 +507,10 @@ public class FhirR4 {
               encounterClaim, encounter, encounter.claim);
         }
       }
+
+      if (shouldExport(org.hl7.fhir.r4.model.Appointment.class)) {
+        encounterAppointment(person, personEntry, bundle, encounter, encounterEntry);
+      }
     }
 
     if (USE_US_CORE_IG && shouldExport(Provenance.class)) {
@@ -512,6 +518,91 @@ public class FhirR4 {
       provenance(bundle, person, stopTime);
     }
     return bundle;
+  }
+
+  private static BundleEntryComponent encounterAppointment(Person person, BundleEntryComponent personEntry,
+                                                           Bundle bundle, Encounter encounter,
+                                                           BundleEntryComponent encounterEntry) {
+
+    org.hl7.fhir.r4.model.Appointment apptResource = new org.hl7.fhir.r4.model.Appointment();
+    apptResource.setId(String.valueOf(UUID.randomUUID()));
+
+    // convert participant
+    org.hl7.fhir.r4.model.Encounter encounterResource =
+            (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
+
+    //status
+    apptResource.setStatus(Appointment.AppointmentStatus.FULFILLED);
+
+    // appt type
+    CodeableConcept aTypeCC = new CodeableConcept();
+    aTypeCC.setText("Appt Type");
+    Coding apptTypeCoding = aTypeCC.addCoding().setCode("apptType")
+            .setDisplay("Appt Type display").setSystem("apptTypeSystem");
+
+    apptResource.setAppointmentType(aTypeCC);
+
+    // serviceCategory
+    List<org.hl7.fhir.r4.model.CodeableConcept> categories = new ArrayList<>();
+    CodeableConcept cc = new CodeableConcept();
+    cc.setText("category 1");
+    Coding serviceCatCoding = cc.addCoding();
+    serviceCatCoding.setDisplay("cat 1 display");
+    serviceCatCoding.setSystem("cat1system");
+    serviceCatCoding.setCode("cat1");
+
+    categories.add(cc);
+    apptResource.setServiceCategory(categories);
+
+    // serviceType
+    List<org.hl7.fhir.r4.model.CodeableConcept> types = new ArrayList<>();
+    CodeableConcept stcc = new CodeableConcept();
+    stcc.setText("type 1");
+    Coding serviceTypesCoding = stcc.addCoding();
+    serviceTypesCoding.setDisplay("type 1 display");
+    serviceTypesCoding.setSystem("type1system");
+    serviceTypesCoding.setCode("type1");
+
+    types.add(stcc);
+    apptResource.setServiceType(types);
+
+    // add all participants
+    List<Appointment.AppointmentParticipantComponent> aPList = new ArrayList<>();
+    for (org.hl7.fhir.r4.model.Encounter.EncounterParticipantComponent eParticipant : encounterResource.getParticipant()) {
+      Appointment.AppointmentParticipantComponent aProvider = new Appointment.AppointmentParticipantComponent();
+      // Add provider
+      aProvider.setPeriod(eParticipant.getPeriod());
+      aProvider.setActor(eParticipant.getIndividual());
+      aProvider.setStatus(Appointment.ParticipationStatus.ACCEPTED);
+
+      aPList.add(aProvider);
+
+
+      // Add location
+      Appointment.AppointmentParticipantComponent aLoc = new Appointment.AppointmentParticipantComponent();
+      aLoc.setActor(encounterResource.getLocation().get(0).getLocation());
+      aLoc.setStatus(Appointment.ParticipationStatus.ACCEPTED);
+      aPList.add(aLoc);
+
+      //Add patient
+      Appointment.AppointmentParticipantComponent aPatient = new Appointment.AppointmentParticipantComponent();
+      aPatient.setActor(encounterResource.getSubject());
+      aPatient.setStatus(Appointment.ParticipationStatus.ACCEPTED);
+      aPList.add(aPatient);
+
+    }
+
+    //start and end
+    LocalDateTime start = LocalDateTime.now().minusHours((long) (Math.random() * (10)));
+    LocalDateTime end = start.plusHours(1);
+
+    apptResource.setStart(java.sql.Timestamp.valueOf(start));
+    apptResource.setEnd(java.sql.Timestamp.valueOf(end));
+
+    apptResource.setParticipant(aPList);
+
+
+    return newEntry(bundle, apptResource, apptResource.getId());
   }
 
   /**
