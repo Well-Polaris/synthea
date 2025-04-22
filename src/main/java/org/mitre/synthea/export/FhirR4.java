@@ -242,6 +242,9 @@ public class FhirR4 {
   private static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
   private static final String PASSPORT_URI = Config.get("generate.geography.passport_uri", "http://hl7.org/fhir/sid/passport-USA");
 
+  private static String generalPractitionerId = null;
+  private static boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus", false);
+
   private static final HashSet<Class<? extends Resource>> includedResources = new HashSet<>();
   private static final HashSet<Class<? extends Resource>> excludedResources = new HashSet<>();
 
@@ -660,6 +663,19 @@ public class FhirR4 {
         .setType(mapCodeToCodeableConcept(uliCode, "http://terminology.hl7.org/CodeSystem/v2-0203"))
         .setSystem("https://fhir.infoway-inforoute.ca/NamingSystem/ca-ab-patient-healthcare-id")
         .setValue((String) person.attributes.get(Person.IDENTIFIER_SSN));
+
+    // Add status if provided via command line
+    if (Config.get("exporter.fhir.patientStatus") != null) {
+      boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus");
+      patientResource.setActive(patientStatus);
+    }
+    
+    // Add general practitioner reference if ID was provided via command line
+    String generalPractitionerId = Config.get("exporter.fhir.generalPractitionerId", null);
+    if (generalPractitionerId != null && !generalPractitionerId.isEmpty()) {
+      patientResource.addGeneralPractitioner()
+          .setReference("Practitioner/" + generalPractitionerId);
+    }
 
     if (person.attributes.get(Person.IDENTIFIER_PASSPORT) != null) {
       Code passportCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "PPN", "Passport Number");
@@ -1210,13 +1226,13 @@ public class FhirR4 {
 
     org.hl7.fhir.r4.model.Claim claimResource = new org.hl7.fhir.r4.model.Claim();
     org.hl7.fhir.r4.model.Encounter encounterResource =
-        (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
+            (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
 
     claimResource.setStatus(ClaimStatus.ACTIVE);
     CodeableConcept type = new CodeableConcept();
     type.getCodingFirstRep()
-      .setSystem("http://terminology.hl7.org/CodeSystem/claim-type")
-      .setCode("pharmacy");
+            .setSystem("http://terminology.hl7.org/CodeSystem/claim-type")
+            .setCode("pharmacy");
     claimResource.setType(type);
     claimResource.setUse(org.hl7.fhir.r4.model.Claim.Use.CLAIM);
 
@@ -1237,14 +1253,14 @@ public class FhirR4 {
     // set the required priority
     CodeableConcept priority = new CodeableConcept();
     priority.getCodingFirstRep()
-      .setSystem("http://terminology.hl7.org/CodeSystem/processpriority")
-      .setCode("normal");
+            .setSystem("http://terminology.hl7.org/CodeSystem/processpriority")
+            .setCode("normal");
     claimResource.setPriority(priority);
 
     // add item for medication
     claimResource.addItem(new ItemComponent(new PositiveIntType(1),
-          medicationCodeableConcept)
-        .addEncounter(new Reference(encounterEntry.getFullUrl())));
+                    medicationCodeableConcept)
+            .addEncounter(new Reference(encounterEntry.getFullUrl())));
 
     // add prescription.
     claimResource.setPrescription(new Reference(medicationEntry.getFullUrl()));
@@ -1255,10 +1271,10 @@ public class FhirR4 {
     claimResource.setTotal(moneyResource);
 
     BundleEntryComponent medicationClaimEntry =
-        newEntry(bundle, claimResource, claim.uuid.toString());
+            newEntry(bundle, claimResource, claim.uuid.toString());
 
     explanationOfBenefit(personEntry, bundle, encounterEntry, person,
-        medicationClaimEntry, encounter, claim);
+            medicationClaimEntry, encounter, claim);
 
     return medicationClaimEntry;
   }
