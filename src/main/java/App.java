@@ -30,6 +30,8 @@ public class App {
     System.out.println("Usage: run_synthea [options] [state [city]]");
     System.out.println("Options: [-s seed] [-cs clinicianSeed] [-p populationSize]");
     System.out.println("         [-ps singlePersonSeed]");
+    System.out.println("         [-gp generalPractitioner]");
+    System.out.println("         [-pa patientActiveStatus]");
     System.out.println("         [-r referenceDate as YYYYMMDD]");
     System.out.println("         [-e endDate as YYYYMMDD]");
     System.out.println("         [-g gender] [-a minAge-maxAge]");
@@ -106,6 +108,12 @@ public class App {
             String value = argsQ.poll();
             options.population = Integer.parseInt(value);
             Config.set("generate.default_population", value);
+          } else if (currArg.equalsIgnoreCase("-gp")) {
+            String value = argsQ.poll();
+            Config.set("exporter.fhir.generalPractitionerId", value);
+          } else if (currArg.equalsIgnoreCase("-pa")) {
+            String value = argsQ.poll();
+            Config.set("exporter.fhir.patientStatus", String.valueOf(Boolean.parseBoolean(value)));
           } else if (currArg.equalsIgnoreCase("-o")) {
             String value = argsQ.poll();
             options.overflow = Boolean.parseBoolean(value);
