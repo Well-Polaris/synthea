@@ -242,11 +242,13 @@ public class FhirR4 {
   private static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
   private static final String PASSPORT_URI = Config.get("generate.geography.passport_uri", "http://hl7.org/fhir/sid/passport-USA");
 
-  private static String generalPractitionerId = null;
+  private static String generalPractitionerId = Config.get("exporter.fhir.generalPractitionerId", null);
+
   private static boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus", false);
 
   private static String polarisOrganizationId = Config.get("exporter.fhir.polarisOrganizationId", null);
   private static String polarisInstance = Config.get("exporter.fhir.polarisInstance", "cpar");
+  private static boolean polarisLimitToGeneralPractitioner = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false);
 
   private static final HashSet<Class<? extends Resource>> includedResources = new HashSet<>();
   private static final HashSet<Class<? extends Resource>> excludedResources = new HashSet<>();
@@ -674,7 +676,6 @@ public class FhirR4 {
     }
     
     // Add general practitioner reference if ID was provided via command line
-    String generalPractitionerId = Config.get("exporter.fhir.generalPractitionerId", null);
     if (generalPractitionerId != null && !generalPractitionerId.isEmpty()) {
       patientResource.addGeneralPractitioner()
           .setReference("Practitioner/" + generalPractitionerId);
@@ -1084,7 +1085,10 @@ public class FhirR4 {
     }
 
     if (encounter.clinician != null) {
-      if (TRANSACTION_BUNDLE) {
+      if (polarisLimitToGeneralPractitioner && generalPractitionerId != null) {
+        encounterResource.addParticipant().setIndividual(
+            new Reference("Practitioner/" + generalPractitionerId));
+      } else if (TRANSACTION_BUNDLE) {
         encounterResource.addParticipant().setIndividual(new Reference(
                 ExportHelper.buildFhirNpiSearchUrl(encounter.clinician)));
       } else {
