@@ -32,6 +32,8 @@ public class App {
     System.out.println("         [-ps singlePersonSeed]");
     System.out.println("         [-gp generalPractitioner]");
     System.out.println("         [-pa patientActiveStatus]");
+    System.out.println("         [-po polarisOrganization]");
+    System.out.println("         [-pi polarisInstance]");
     System.out.println("         [-r referenceDate as YYYYMMDD]");
     System.out.println("         [-e endDate as YYYYMMDD]");
     System.out.println("         [-g gender] [-a minAge-maxAge]");
@@ -114,6 +116,12 @@ public class App {
           } else if (currArg.equalsIgnoreCase("-pa")) {
             String value = argsQ.poll();
             Config.set("exporter.fhir.patientStatus", String.valueOf(Boolean.parseBoolean(value)));
+          } else if (currArg.equalsIgnoreCase("-po")) {
+            String value = argsQ.poll();
+            Config.set("exporter.fhir.polarisOrganizationId", value);
+          } else if (currArg.equalsIgnoreCase("-pi")) {
+            String value = argsQ.poll();
+            Config.set("exporter.fhir.polarisInstance", value);
           } else if (currArg.equalsIgnoreCase("-o")) {
             String value = argsQ.poll();
             options.overflow = Boolean.parseBoolean(value);
