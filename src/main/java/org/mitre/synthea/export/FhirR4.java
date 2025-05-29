@@ -519,6 +519,10 @@ public class FhirR4 {
       if (shouldExport(org.hl7.fhir.r4.model.Appointment.class)) {
         encounterAppointment(person, personEntry, bundle, encounter, encounterEntry);
       }
+
+      if (shouldExport(org.hl7.fhir.r4.model.ServiceRequest.class)) {
+        encounterServiceRequest(person, personEntry, bundle, encounter, encounterEntry);
+      }
     }
 
     if (USE_US_CORE_IG && shouldExport(Provenance.class)) {
@@ -526,6 +530,22 @@ public class FhirR4 {
       provenance(bundle, person, stopTime);
     }
     return bundle;
+  }
+
+  private static BundleEntryComponent encounterServiceRequest(Person person, BundleEntryComponent personEntry,
+                                                           Bundle bundle, Encounter encounter,
+                                                           BundleEntryComponent encounterEntry) {
+    ServiceRequest serviceRequest = (ServiceRequest) new ServiceRequest()
+        .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
+        .setIntent(ServiceRequest.ServiceRequestIntent.ORDER)
+        .setSubject(new Reference(personEntry.getFullUrl()))
+        .setEncounter(new Reference(encounterEntry.getFullUrl()))
+        .setCode(new CodeableConcept().setText("Request for service"))
+        .setId(String.valueOf(UUID.randomUUID()));
+    serviceRequest.addIdentifier()
+        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/servicerequest-identifier")
+        .setValue(encounter.uuid.toString());
+    return newEntry(bundle, serviceRequest, serviceRequest.getId());
   }
 
   private static BundleEntryComponent encounterAppointment(Person person, BundleEntryComponent personEntry,
@@ -1500,11 +1520,15 @@ public class FhirR4 {
         .setDisplay("Primary provider"));
     Reference providerReference = new Reference().setDisplay("Unknown");
     if (encounter.clinician != null) {
-      String practitionerFullUrl = TRANSACTION_BUNDLE
-          ? ExportHelper.buildFhirNpiSearchUrl(encounter.clinician)
-          : findPractitioner(encounter.clinician, bundle);
-      if (practitionerFullUrl != null) {
-        providerReference = new Reference(practitionerFullUrl);
+      if (polarisLimitToGeneralPractitioner && generalPractitionerId != null) {
+        providerReference = new Reference("Practitioner/" + generalPractitionerId);
+      } else {
+        String practitionerFullUrl = TRANSACTION_BUNDLE
+            ? ExportHelper.buildFhirNpiSearchUrl(encounter.clinician)
+            : findPractitioner(encounter.clinician, bundle);
+        if (practitionerFullUrl != null) {
+          providerReference = new Reference(practitionerFullUrl);
+        }
       }
     } else if (encounter.provider != null) {
       String providerUrl = TRANSACTION_BUNDLE
