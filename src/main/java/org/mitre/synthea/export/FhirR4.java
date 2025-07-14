@@ -538,6 +538,7 @@ public class FhirR4 {
     ServiceRequest serviceRequest = (ServiceRequest) new ServiceRequest()
         .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
         .setIntent(ServiceRequest.ServiceRequestIntent.ORDER)
+        .setAuthoredOn(new Date(encounter.start))
         .setSubject(new Reference(personEntry.getFullUrl()))
         .setEncounter(new Reference(encounterEntry.getFullUrl()))
         .setCode(new CodeableConcept().setText("Request for service"))
@@ -620,12 +621,9 @@ public class FhirR4 {
 
     }
 
-    //start and end
-    LocalDateTime start = LocalDateTime.now().minusHours((long) (Math.random() * (10)));
-    LocalDateTime end = start.plusHours(1);
 
-    apptResource.setStart(java.sql.Timestamp.valueOf(start));
-    apptResource.setEnd(java.sql.Timestamp.valueOf(end));
+    apptResource.setStart(new Date(encounter.start));
+    apptResource.setEnd(new Date(encounter.endedTime));
 
     apptResource.setParticipant(aPList);
 
