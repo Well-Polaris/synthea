@@ -658,9 +658,9 @@ public class FhirR4 {
         .setSystem("https://fhir.apps.health/cpar/NamingSystem/patient-identifier")
         .setValue((String) person.attributes.get(Person.IDENTIFIER_SSN));
 
-    Code uliCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "ULI", "ULI");
+    Code jhnCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "JHN", "Jurisdictional Health Number");
     patientResource.addIdentifier()
-        .setType(mapCodeToCodeableConcept(uliCode, "http://terminology.hl7.org/CodeSystem/v2-0203"))
+        .setType(mapCodeToCodeableConcept(jhnCode, "http://terminology.hl7.org/CodeSystem/v2-0203"))
         .setSystem("https://fhir.infoway-inforoute.ca/NamingSystem/ca-ab-patient-healthcare-id")
         .setValue((String) person.attributes.get(Person.IDENTIFIER_SSN));
 
