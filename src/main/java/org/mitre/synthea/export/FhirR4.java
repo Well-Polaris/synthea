@@ -246,7 +246,6 @@ public class FhirR4 {
 
   private static boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus", false);
 
-  private static String polarisOrganizationId = Config.get("exporter.fhir.polarisOrganizationId", null);
   private static String polarisInstance = Config.get("exporter.fhir.polarisInstance", "cpar");
   private static boolean polarisLimitToGeneralPractitioner = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false);
 
@@ -1104,9 +1103,6 @@ public class FhirR4 {
       provider = person.getProvider(EncounterType.WELLNESS, encounter.start);
     }
 
-    if (polarisOrganizationId != null) {
-      encounterResource.setServiceProvider(new Reference("Organization/"  + polarisOrganizationId));
-    } else {
       if (TRANSACTION_BUNDLE) {
         encounterResource.setServiceProvider(new Reference(
                 ExportHelper.buildFhirSearchUrl("Organization", provider.getResourceID())));
@@ -1117,7 +1113,6 @@ public class FhirR4 {
         } else {
           BundleEntryComponent providerOrganization = provider(bundle, provider);
           encounterResource.setServiceProvider(new Reference(providerOrganization.getFullUrl()));
-        }
       }
     }
     encounterResource.getServiceProvider().setDisplay(provider.name);
