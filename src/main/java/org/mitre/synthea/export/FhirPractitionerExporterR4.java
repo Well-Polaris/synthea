@@ -32,8 +32,11 @@ public abstract class FhirPractitionerExporterR4 {
    * Export the practitioner in FHIR R4 format.
    */
   public static void export(RandomNumberGenerator rand, long stop) {
-    if (Config.getAsBoolean("exporter.practitioner.fhir.export")) {
+    boolean limitingToGeneralPractitioner =
+        Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false)
+        && Config.get("exporter.fhir.generalPractitionerId", null) != null;
 
+    if (Config.getAsBoolean("exporter.practitioner.fhir.export") && !limitingToGeneralPractitioner) {
       Bundle bundle = new Bundle();
       if (Config.getAsBoolean("exporter.fhir.transaction_bundle")) {
         bundle.setType(BundleType.BATCH);
