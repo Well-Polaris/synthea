@@ -529,6 +529,52 @@ public class FhirR4 {
       // Add Provenance to the Bundle
       provenance(bundle, person, stopTime);
     }
+
+    // remove encounters and references to encounters from the Bundle
+    for (int i = bundle.getEntry().size() - 1; i >= 0; i--) {
+      BundleEntryComponent entry = bundle.getEntry().get(i);
+      Resource resource = entry.getResource();
+
+      switch (resource.getResourceType()) {
+        case Encounter:
+          bundle.getEntry().remove(i);
+          break;
+        case Observation:
+          org.hl7.fhir.r4.model.Observation observationResource = (org.hl7.fhir.r4.model.Observation) resource;
+          observationResource.setEncounter(null);
+          break;
+        case ServiceRequest:
+          org.hl7.fhir.r4.model.ServiceRequest serviceRequestResource = (org.hl7.fhir.r4.model.ServiceRequest) resource;
+          serviceRequestResource.setEncounter(null);
+          break;
+        case Procedure:
+          org.hl7.fhir.r4.model.Procedure procedureResource = (org.hl7.fhir.r4.model.Procedure) resource;
+          procedureResource.setEncounter(null);
+          break;
+        case MedicationRequest:
+          org.hl7.fhir.r4.model.MedicationRequest medicationRequestResource = (org.hl7.fhir.r4.model.MedicationRequest) resource;
+          medicationRequestResource.setEncounter(null);
+          break;
+        case Condition:
+          org.hl7.fhir.r4.model.Condition conditionResource = (org.hl7.fhir.r4.model.Condition) resource;
+          conditionResource.setEncounter(null);
+          break;
+        case Immunization:
+          org.hl7.fhir.r4.model.Immunization immunizationResource = (org.hl7.fhir.r4.model.Immunization) resource;
+          immunizationResource.setEncounter(null);
+          break;
+        case AllergyIntolerance:
+          org.hl7.fhir.r4.model.AllergyIntolerance allergyResource = (org.hl7.fhir.r4.model.AllergyIntolerance) resource;
+          allergyResource.setEncounter(null);
+          break;
+        case DocumentReference:
+          org.hl7.fhir.r4.model.DocumentReference documentReferenceResource = (org.hl7.fhir.r4.model.DocumentReference) resource;
+          documentReferenceResource.setContext(null);
+          break;
+        default:
+          break;
+      }
+    }
     return bundle;
   }
 
