@@ -242,12 +242,12 @@ public class FhirR4 {
   private static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
   private static final String PASSPORT_URI = Config.get("generate.geography.passport_uri", "http://hl7.org/fhir/sid/passport-USA");
 
-  private static String generalPractitionerPolarisIdentifier = Config.get("exporter.fhir.generalPractitionerPolarisIdentifier", null);
+  private static String generalPractitionerRolePolarisIdentifier = Config.get("exporter.fhir.generalPractitionerRolePolarisIdentifier", null);
 
   private static boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus", false);
 
   private static String polarisInstance = Config.get("exporter.fhir.polarisInstance", "cpar");
-  private static boolean polarisLimitToGeneralPractitioner = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false);
+  private static boolean polarisLimitToGeneralPractitionerRole = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitionerRole", false);
 
   private static final HashSet<Class<? extends Resource>> includedResources = new HashSet<>();
   private static final HashSet<Class<? extends Resource>> excludedResources = new HashSet<>();
@@ -737,8 +737,8 @@ public class FhirR4 {
     }
     
     // Add general practitioner reference if ID was provided via command line
-    if (generalPractitionerPolarisIdentifier != null && !generalPractitionerPolarisIdentifier.isEmpty()) {
-      patientResource.addGeneralPractitioner(getPolarisReference("Practitioner", generalPractitionerPolarisIdentifier));
+    if (generalPractitionerRolePolarisIdentifier != null && !generalPractitionerRolePolarisIdentifier.isEmpty()) {
+      patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
     }
 
     if (person.attributes.get(Person.IDENTIFIER_PASSPORT) != null) {
@@ -1118,12 +1118,12 @@ public class FhirR4 {
     }
 
     if (encounter.clinician != null) {
-      if (polarisLimitToGeneralPractitioner && generalPractitionerPolarisIdentifier != null) {
-        encounterResource.addParticipant().setIndividual(getPolarisReference("Practitioner", generalPractitionerPolarisIdentifier));
+      if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
+        encounterResource.addParticipant().setIndividual(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
       } else if (TRANSACTION_BUNDLE) {
-        encounterResource.addParticipant().setIndividual(findPolarisPractitioner(encounter.clinician, bundle));
+        encounterResource.addParticipant().setIndividual(findPolarisPractitionerRole(encounter.clinician, bundle));
       } else {
-        Reference reference = findPolarisPractitioner(encounter.clinician, bundle);
+        Reference reference = findPolarisPractitionerRole(encounter.clinician, bundle);
         if (reference != null) {
           encounterResource.addParticipant().setIndividual(reference);
         } else {
@@ -1317,21 +1317,31 @@ public class FhirR4 {
   }
 
   /**
-   * Find the Practitioner entry in this bundle, and return the associated Polaris reference
+   * Find the PractitionerRole entry in this bundle, and return the associated Polaris reference
    * attribute.
    * @param clinician A given clinician.
    * @param bundle The current bundle being generated.
    * @return Polaris Reference if found, otherwise null.
    */
-  private static Reference findPolarisPractitioner(Clinician clinician, Bundle bundle) {
+  private static Reference findPolarisPractitionerRole(Clinician clinician, Bundle bundle) {
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Practitioner")) {
         Practitioner doc = (Practitioner) entry.getResource();
+        Identifier docIdentifier = doc.getIdentifier().stream()
+          .filter(identifier -> identifier.getSystem().endsWith("-practitioner-identifier"))
+          .findAny()
+          .orElse(null);
         if (doc.getIdentifierFirstRep().getValue().equals(clinician.npi)) {
-          return new Reference().setIdentifier(doc.getIdentifier().stream().filter(identifier -> identifier.getSystem().equals("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-practitioner-identifier"))
-            .findAny()
-            .orElse(null)
-          );
+          // find the PractitionerRole for this clinician
+          for (BundleEntryComponent roleEntry : bundle.getEntry()) {
+            if (roleEntry.getResource().fhirType().equals("PractitionerRole")) {
+              PractitionerRole role = (PractitionerRole) roleEntry.getResource();
+              Identifier roleIdentifier = role.getPractitioner().getIdentifier();
+              if (roleIdentifier.getSystem().equals(docIdentifier.getSystem()) && roleIdentifier.getValue().equals(docIdentifier.getValue())) {
+                return getPolarisReference(roleEntry);
+              }
+            }
+          }
         }
       }
     }
@@ -1615,10 +1625,10 @@ public class FhirR4 {
         .setDisplay("Primary provider"));
     Reference providerReference = new Reference().setDisplay("Unknown");
     if (encounter.clinician != null) {
-      if (polarisLimitToGeneralPractitioner && generalPractitionerPolarisIdentifier != null) {
-        providerReference = getPolarisReference("Practitioner", generalPractitionerPolarisIdentifier);
+      if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
+        providerReference = getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier);
       } else {
-        providerReference = findPolarisPractitioner(encounter.clinician, bundle);
+        providerReference = findPolarisPractitionerRole(encounter.clinician, bundle);
       }
     } else if (encounter.provider != null) {
       providerReference = findPolarisProvider(encounter.provider, bundle);
@@ -2427,7 +2437,7 @@ public class FhirR4 {
       providerOrganization.incrementEncounters(EncounterType.VIRTUAL, Utilities.getYear(stopTime));
     }
 
-    Reference practitionerReference = findPolarisPractitioner(clinician, bundle);
+    Reference practitionerReference = findPolarisPractitionerRole(clinician, bundle);
     Reference organizationReference = findPolarisProvider(providerOrganization, bundle);
 
     // Provenance Author...
@@ -3456,10 +3466,10 @@ public class FhirR4 {
   }
 
   /**
-   * Map the clinician into a FHIR Practitioner resource, and add it to the given Bundle.
+   * Map the clinician into a FHIR Practitioner and PractitionerRole resource, and add it to the given Bundle.
    * @param bundle The Bundle to add to
    * @param clinician The clinician
-   * @return The added Entry
+   * @return The added PractitionerRole Entry or the Practitioner Entry if US Core IG is not used
    */
   protected static BundleEntryComponent practitioner(Bundle bundle,
           Clinician clinician) {
@@ -3553,7 +3563,7 @@ public class FhirR4 {
       practitionerRole.setId(uuid);
       practitionerRole.addIdentifier(getPolarisIdentifier(practitionerRole));
 
-      newEntry(bundle, practitionerRole, uuid);
+      return newEntry(bundle, practitionerRole, uuid);
     }
 
     return practitionerEntry;
