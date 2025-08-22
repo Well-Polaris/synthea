@@ -1634,7 +1634,7 @@ public class FhirR4 {
       providerReference = findPolarisProvider(encounter.provider, bundle);
     }
 
-    if (providerReference.getIdentifier().getValue() == null) {
+    if (providerReference == null || providerReference.getIdentifier() == null || providerReference.getIdentifier().getValue() == null) {
       providerReference = null;
     }
 
@@ -3546,6 +3546,8 @@ public class FhirR4 {
                   .setSystem(SYNTHEA_IDENTIFIER)
                   .setValue(clinician.getOrganization().getResourceLocationID()))
           .setDisplay(clinician.getOrganization().name);
+      practitionerRole.addLocation()
+          .setIdentifier(getPolarisIdentifier("Location", clinician.getOrganization().getResourceLocationID()));
       if (clinician.getOrganization().phone != null
           && !clinician.getOrganization().phone.isEmpty()) {
         practitionerRole.addTelecom(new ContactPoint()
