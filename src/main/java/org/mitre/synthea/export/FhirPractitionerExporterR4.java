@@ -34,7 +34,7 @@ public abstract class FhirPractitionerExporterR4 {
   public static void export(RandomNumberGenerator rand, long stop) {
     boolean limitingToGeneralPractitioner =
         Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false)
-        && Config.get("exporter.fhir.generalPractitionerId", null) != null;
+        && Config.get("exporter.fhir.generalPractitionerPolarisIdentifier", null) != null;
 
     if (Config.getAsBoolean("exporter.practitioner.fhir.export") && !limitingToGeneralPractitioner) {
       Bundle bundle = new Bundle();

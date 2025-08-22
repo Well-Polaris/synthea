@@ -112,7 +112,7 @@ public class App {
             Config.set("generate.default_population", value);
           } else if (currArg.equalsIgnoreCase("-gp")) {
             String value = argsQ.poll();
-            Config.set("exporter.fhir.generalPractitionerId", value);
+            Config.set("exporter.fhir.generalPractitionerPolarisIdentifier", value);
           } else if (currArg.equalsIgnoreCase("-pa")) {
             String value = argsQ.poll();
             Config.set("exporter.fhir.patientStatus", String.valueOf(Boolean.parseBoolean(value)));
