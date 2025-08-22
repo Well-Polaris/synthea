@@ -597,6 +597,7 @@ public class FhirR4 {
 
     org.hl7.fhir.r4.model.Appointment apptResource = new org.hl7.fhir.r4.model.Appointment();
     apptResource.setId(String.valueOf(UUID.randomUUID()));
+    apptResource.addIdentifier(getPolarisIdentifier(apptResource));
 
     // convert participant
     org.hl7.fhir.r4.model.Encounter encounterResource =
@@ -1102,7 +1103,7 @@ public class FhirR4 {
       Reference reference;
       if (TRANSACTION_BUNDLE) {
         if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
-          reference = getPolarisReference(FhirR4PatientHome.getPatientHome());
+          reference = getPolarisReference(FhirR4PatientHome.getPatientHome(polarisInstance));
         } else {
           reference = findLocationPolarisReference(provider, bundle);
         }
@@ -1209,13 +1210,13 @@ public class FhirR4 {
     String locationURL = null;
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Location")) {
-        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome().getId())) {
+        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome(polarisInstance).getId())) {
           locationURL = entry.getFullUrl();
         }
       }
     }
     if (locationURL == null) {
-      org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome();
+      org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome(polarisInstance);
       BundleEntryComponent bec = newEntry(bundle, location, location.getId());
       locationURL = bec.getFullUrl();
     }
@@ -1231,12 +1232,12 @@ public class FhirR4 {
   public static Reference addPatientHomePolarisLocation(Bundle bundle) {
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Location")) {
-        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome().getId())) {
+        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome(polarisInstance).getId())) {
           return getPolarisReference(entry.getResource());
         }
       }
     }
-    org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome();
+    org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome(polarisInstance);
     BundleEntryComponent bec = newEntry(bundle, location, location.getId());
     return getPolarisReference(bec.getResource());
   }
@@ -1357,6 +1358,8 @@ public class FhirR4 {
       BundleEntryComponent medicationEntry, CodeableConcept medicationCodeableConcept) {
 
     org.hl7.fhir.r4.model.Claim claimResource = new org.hl7.fhir.r4.model.Claim();
+    claimResource.setId(claim.uuid.toString());
+    claimResource.addIdentifier(getPolarisIdentifier(claimResource));
     org.hl7.fhir.r4.model.Encounter encounterResource =
             (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
 
@@ -1424,6 +1427,8 @@ public class FhirR4 {
       Person person, BundleEntryComponent personEntry,
       Bundle bundle, BundleEntryComponent encounterEntry, Encounter encounter) {
     org.hl7.fhir.r4.model.Claim claimResource = new org.hl7.fhir.r4.model.Claim();
+    claimResource.setId(encounter.claim.uuid.toString());
+    claimResource.addIdentifier(getPolarisIdentifier(claimResource));
     org.hl7.fhir.r4.model.Encounter encounterResource =
         (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
     claimResource.setStatus(ClaimStatus.ACTIVE);
@@ -2298,6 +2303,8 @@ public class FhirR4 {
   private static BundleEntryComponent device(
           BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device) {
     Device deviceResource = new Device();
+    deviceResource.setId(device.uuid.toString());
+    deviceResource.addIdentifier(getPolarisIdentifier(deviceResource));
     if (USE_US_CORE_IG) {
       Meta meta = new Meta();
       meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device");
@@ -2340,6 +2347,8 @@ public class FhirR4 {
           Encounter encounter) {
 
     SupplyDelivery supplyResource = new SupplyDelivery();
+    supplyResource.setId(supply.uuid.toString());
+    supplyResource.addIdentifier(getPolarisIdentifier(supplyResource));
     supplyResource.setStatus(SupplyDeliveryStatus.COMPLETED);
     supplyResource.setPatient(getPolarisReference(personEntry));
 
@@ -2530,6 +2539,8 @@ public class FhirR4 {
       drugResource.setStatus(MedicationStatus.ACTIVE);
       String drugUUID = ExportHelper.buildUUID(person, medication.start,
           "Medication Resource for " + medication.uuid);
+      drugResource.setId(drugUUID);
+      drugResource.addIdentifier(getPolarisIdentifier(drugResource));
       BundleEntryComponent drugEntry = newEntry(bundle, drugResource, drugUUID);
       medicationResource.setMedication(getPolarisReference(drugEntry));
 
@@ -2732,6 +2743,8 @@ public class FhirR4 {
 
     String medicationAdminUUID = ExportHelper.buildUUID(person, medication.start,
         "MedicationAdministration for " + medication.uuid);
+    medicationResource.setId(medicationAdminUUID);
+    medicationResource.addIdentifier(getPolarisIdentifier(medicationResource));
     BundleEntryComponent medicationAdminEntry =
         newEntry(bundle, medicationResource, medicationAdminUUID);
     return medicationAdminEntry;
@@ -2837,6 +2850,8 @@ public class FhirR4 {
     // IMPORTANT: if this function is called more than once per encounter, change here and below!
     String reportUUID = ExportHelper.buildUUID(person, 0,
         "DiagnosticReport for note on encounter " + encounter.getId());
+    reportResource.setId(reportUUID);
+    reportResource.addIdentifier(getPolarisIdentifier(reportResource));
     newEntry(bundle, reportResource, reportUUID);
 
     if (shouldExport(DocumentReference.class)) {
@@ -2897,6 +2912,8 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           Provider provider, BundleEntryComponent careTeamEntry, CarePlan carePlan) {
     org.hl7.fhir.r4.model.CarePlan careplanResource = new org.hl7.fhir.r4.model.CarePlan();
+    careplanResource.setId(carePlan.uuid.toString());
+    careplanResource.addIdentifier(getPolarisIdentifier(careplanResource));
 
     if (USE_US_CORE_IG) {
       Meta meta = new Meta();
@@ -3160,6 +3177,8 @@ public class FhirR4 {
 
     String careTeamUUID = ExportHelper.buildUUID(person, carePlan.start,
         "CareTeam for CarePlan " + carePlan.uuid);
+    careTeam.setId(careTeamUUID);
+    careTeam.addIdentifier(getPolarisIdentifier(careTeam));
 
     return newEntry(bundle, careTeam, careTeamUUID);
   }
@@ -3430,8 +3449,9 @@ public class FhirR4 {
     location.addIdentifier()
         .setSystem(SYNTHEA_IDENTIFIER)
         .setValue(provider.getResourceLocationID());
-    location.addIdentifier(getPolarisIdentifier(location));
     location.setManagingOrganization(getPolarisOrganizationReference());
+    location.setId(provider.getResourceLocationID());
+    location.addIdentifier(getPolarisIdentifier(location));
     return location;
   }
 
@@ -3530,6 +3550,8 @@ public class FhirR4 {
       String uuid = ExportHelper.buildUUID(origUUID.getLeastSignificantBits(),
           origUUID.getMostSignificantBits(),
           "PractitionerRole for Clinician " + origUUID);
+      practitionerRole.setId(uuid);
+      practitionerRole.addIdentifier(getPolarisIdentifier(practitionerRole));
 
       newEntry(bundle, practitionerRole, uuid);
     }
