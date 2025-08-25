@@ -1101,18 +1101,10 @@ public class FhirR4 {
 
     if (USE_US_CORE_IG) {
       Reference reference;
-      if (TRANSACTION_BUNDLE) {
-        if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
-          reference = getPolarisReference(FhirR4PatientHome.getPatientHome(polarisInstance));
-        } else {
-          reference = findLocationPolarisReference(provider, bundle);
-        }
+      if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
+        reference = addPatientHomePolarisLocation(bundle);
       } else {
-        if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
-          reference = addPatientHomePolarisLocation(bundle);
-        } else {
-          reference = findLocationPolarisReference(provider, bundle);
-        }
+        reference = findLocationPolarisReference(provider, bundle);
       }
       encounterResource.addLocation().setLocation(reference);
     }
@@ -1120,8 +1112,6 @@ public class FhirR4 {
     if (encounter.clinician != null) {
       if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
         encounterResource.addParticipant().setIndividual(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
-      } else if (TRANSACTION_BUNDLE) {
-        encounterResource.addParticipant().setIndividual(findPolarisPractitionerRole(encounter.clinician, bundle));
       } else {
         Reference reference = findPolarisPractitionerRole(encounter.clinician, bundle);
         if (reference != null) {
