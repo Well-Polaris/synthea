@@ -649,12 +649,12 @@ public class FhirR4 {
 
       aPList.add(aProvider);
 
-
+      /*
       // Add location
       Appointment.AppointmentParticipantComponent aLoc = new Appointment.AppointmentParticipantComponent();
       aLoc.setActor(encounterResource.getLocation().get(0).getLocation());
       aLoc.setStatus(Appointment.ParticipationStatus.ACCEPTED);
-      aPList.add(aLoc);
+      aPList.add(aLoc);*/
 
       //Add patient
       Appointment.AppointmentParticipantComponent aPatient = new Appointment.AppointmentParticipantComponent();
@@ -708,13 +708,6 @@ public class FhirR4 {
 
     patientResource.addIdentifier().setSystem(SYNTHEA_IDENTIFIER)
         .setValue(patientResource.getId());
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient");
-      patientResource.setMeta(meta);
-    }
 
     Code mrnCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "MR", "Medical Record Number");
     patientResource.addIdentifier()
@@ -1053,12 +1046,6 @@ public class FhirR4 {
                                                 Bundle bundle, Encounter encounter) {
     org.hl7.fhir.r4.model.Encounter encounterResource = new org.hl7.fhir.r4.model.Encounter();
     encounterResource.setId(encounter.uuid.toString());
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter");
-      encounterResource.setMeta(meta);
-    }
 
     encounterResource.addIdentifier(getPolarisIdentifier(encounterResource));
 
@@ -1099,7 +1086,7 @@ public class FhirR4 {
 
     encounterResource.setServiceProvider(getPolarisOrganizationReference());
 
-    if (USE_US_CORE_IG) {
+    /*if (USE_US_CORE_IG) {
       Reference reference;
       if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
         reference = addPatientHomePolarisLocation(bundle);
@@ -1107,7 +1094,7 @@ public class FhirR4 {
         reference = findLocationPolarisReference(provider, bundle);
       }
       encounterResource.addLocation().setLocation(reference);
-    }
+    }*/
 
     if (encounter.clinician != null) {
       if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
@@ -1875,15 +1862,6 @@ public class FhirR4 {
     conditionResource.addIdentifier(getPolarisIdentifier(conditionResource));
 
     if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      if (useUSCore5() || useUSCore6()) {
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-encounter-diagnosis");
-      } else {
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition");
-      }
-      conditionResource.setMeta(meta);
       conditionResource.addCategory(new CodeableConcept().addCoding(new Coding(
           "http://terminology.hl7.org/CodeSystem/condition-category", "encounter-diagnosis",
           "Encounter Diagnosis")));
@@ -2018,12 +1996,6 @@ public class FhirR4 {
       });
     }
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance");
-      allergyResource.setMeta(meta);
-    }
     BundleEntryComponent allergyEntry = newEntry(bundle, allergyResource, allergyResource.getId());
     allergy.fullUrl = allergyEntry.getFullUrl();
     return allergyEntry;
@@ -2094,72 +2066,6 @@ public class FhirR4 {
 
     observationResource.setEffective(convertFhirDateTime(observation.start, true));
     observationResource.setIssued(new Date(observation.start));
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      // add the specific profile based on code
-      String codeMappingUri = US_CORE_MAPPING.get(LOINC_URI, code.code);
-      if (codeMappingUri != null) {
-        meta.addProfile(codeMappingUri);
-        if (!codeMappingUri.contains("/us/core/") && observation.category.equals("vital-signs")) {
-          meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs");
-        }
-      } else if (observation.report != null && observation.category.equals("laboratory")) {
-        meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
-      }
-
-      if (observation.category != null) {
-        if (useUSCore6()) {
-          switch (observation.category) {
-            case "imaging":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-result");
-              break;
-            case "social-history":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-simple-observation");
-              break;
-            case "survey":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-screening-assessment");
-              break;
-            case "exam":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-result");
-              break;
-            case "laboratory":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
-              break;
-            default:
-              // do nothing
-          }
-        } else if (useUSCore5()) {
-          switch (observation.category) {
-            case "imaging":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-imaging");
-              break;
-            case "social-history":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history");
-              break;
-            case "survey":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey");
-              // note that the -sdoh-assessment profile is a subset of -survey,
-              // those are handled by code in US_CORE_MAPPING above
-              break;
-            case "exam":
-              // this one is a little nebulous -- are all exams also clinical tests?
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-test");
-
-              observationResource.addCategory().addCoding().setCode("clinical-test")
-                  .setSystem("http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category")
-                  .setDisplay("Clinical Test");
-              break;
-            default:
-              // do nothing
-          }
-        }
-      }
-
-      if (meta.hasProfile()) {
-        observationResource.setMeta(meta);
-      }
-    }
 
     BundleEntryComponent entry = newEntry(bundle, observationResource, observationResource.getId());
     observation.fullUrl = entry.getFullUrl();
@@ -2246,12 +2152,6 @@ public class FhirR4 {
     org.hl7.fhir.r4.model.Procedure procedureResource = new org.hl7.fhir.r4.model.Procedure();
     procedureResource.setId(procedure.uuid.toString());
     procedureResource.addIdentifier(getPolarisIdentifier(procedureResource));
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure");
-      procedureResource.setMeta(meta);
-    }
     procedureResource.setStatus(ProcedureStatus.COMPLETED);
     procedureResource.setSubject(getPolarisReference(personEntry));
     if (USE_US_CORE_IG) {
@@ -2305,11 +2205,6 @@ public class FhirR4 {
     Device deviceResource = new Device();
     deviceResource.setId(device.uuid.toString());
     deviceResource.addIdentifier(getPolarisIdentifier(deviceResource));
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device");
-      deviceResource.setMeta(meta);
-    }
     deviceResource.addUdiCarrier()
         .setDeviceIdentifier(device.deviceIdentifier)
         .setCarrierHRF(device.udi);
@@ -2381,12 +2276,6 @@ public class FhirR4 {
    */
   private static BundleEntryComponent provenance(Bundle bundle, Person person, long stopTime) {
     Provenance provenance = new Provenance();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-provenance");
-      provenance.setMeta(meta);
-    }
     for (BundleEntryComponent entry : bundle.getEntry()) {
       provenance.addTarget(getPolarisReference(entry));
     }
@@ -2458,12 +2347,6 @@ public class FhirR4 {
           HealthRecord.Entry immunization) {
     Immunization immResource = new Immunization();
     immResource.setId(immunization.uuid.toString());
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization");
-      immResource.setMeta(meta);
-    }
 
     immResource.addIdentifier(getPolarisIdentifier(immResource));
 
@@ -2501,16 +2384,6 @@ public class FhirR4 {
       BundleEntryComponent encounterEntry, Encounter encounter, Medication medication) {
     MedicationRequest medicationResource = new MedicationRequest();
     medicationResource.setId(medication.uuid.toString());
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest");
-      medicationResource.setMeta(meta);
-
-      Code category = new Code("http://terminology.hl7.org/CodeSystem/medicationrequest-category",
-          "community", "Community");
-      medicationResource.addCategory(mapCodeToCodeableConcept(category, null));
-    }
 
     medicationResource.setSubject(getPolarisReference(personEntry));
 
@@ -2531,10 +2404,6 @@ public class FhirR4 {
       // 'administration' flag is an arbitrary way to decide without flipping a coin.
       org.hl7.fhir.r4.model.Medication drugResource =
           new org.hl7.fhir.r4.model.Medication();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication");
-      drugResource.setMeta(meta);
       drugResource.setCode(medicationCodeableConcept);
       drugResource.setStatus(MedicationStatus.ACTIVE);
       String drugUUID = ExportHelper.buildUUID(person, medication.start,
@@ -2770,10 +2639,6 @@ public class FhirR4 {
     }
     reportResource.addIdentifier(getPolarisIdentifier(reportResource));
     if (labsOnly && USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab");
-      reportResource.setMeta(meta);
       org.hl7.fhir.r4.model.Encounter encounterResource =
           (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
       reportResource.addPerformer(encounterResource.getServiceProvider());
@@ -2821,12 +2686,6 @@ public class FhirR4 {
 
     // Add a DiagnosticReport
     DiagnosticReport reportResource = new DiagnosticReport();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note");
-      reportResource.setMeta(meta);
-    }
     reportResource.setStatus(DiagnosticReportStatus.FINAL);
     reportResource.addCategory(new CodeableConcept(
         new Coding(LOINC_URI, "34117-2", "History and physical note")));
@@ -2857,12 +2716,6 @@ public class FhirR4 {
     if (shouldExport(DocumentReference.class)) {
       // Add a DocumentReference
       DocumentReference documentReference = new DocumentReference();
-      if (USE_US_CORE_IG) {
-        Meta meta = new Meta();
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference");
-        documentReference.setMeta(meta);
-      }
       if (currentNote) {
         documentReference.setStatus(DocumentReferenceStatus.CURRENT);
       } else {
@@ -2914,16 +2767,6 @@ public class FhirR4 {
     org.hl7.fhir.r4.model.CarePlan careplanResource = new org.hl7.fhir.r4.model.CarePlan();
     careplanResource.setId(carePlan.uuid.toString());
     careplanResource.addIdentifier(getPolarisIdentifier(careplanResource));
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan");
-      careplanResource.setMeta(meta);
-      careplanResource.addCategory(mapCodeToCodeableConcept(
-          new Code("http://hl7.org/fhir/us/core/CodeSystem/careplan-category", "assess-plan",
-              null), null));
-    }
 
     String narrative = "Care Plan for ";
     careplanResource.setIntent(CarePlanIntent.ORDER);
@@ -3024,12 +2867,6 @@ public class FhirR4 {
       CodeableConcept goalStatus, JsonObject goal) {
 
     Goal goalResource = new Goal();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal");
-      goalResource.setMeta(meta);
-    }
     goalResource.setLifecycleStatus(GoalLifecycleStatus.ACCEPTED);
     goalResource.setAchievementStatus(goalStatus);
     goalResource.setSubject(getPolarisReference(personEntry));
@@ -3113,13 +2950,6 @@ public class FhirR4 {
           CarePlan carePlan) {
 
     CareTeam careTeam = new CareTeam();
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam");
-      careTeam.setMeta(meta);
-    }
 
     Period period = new Period().setStart(new Date(carePlan.start));
     careTeam.setPeriod(period);
@@ -3342,12 +3172,6 @@ public class FhirR4 {
   protected static BundleEntryComponent provider(Bundle bundle,
           Provider provider) {
     Organization organizationResource = new Organization();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization");
-      organizationResource.setMeta(meta);
-    }
 
     List<CodeableConcept> organizationType = new ArrayList<CodeableConcept>();
     organizationType.add(
@@ -3412,12 +3236,6 @@ public class FhirR4 {
   protected static org.hl7.fhir.r4.model.Location providerLocation(
           Bundle bundle, Provider provider) {
     org.hl7.fhir.r4.model.Location location = new org.hl7.fhir.r4.model.Location();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-location");
-      location.setMeta(meta);
-    }
     location.setStatus(LocationStatus.ACTIVE);
     location.setName(provider.name);
     // set telecom
@@ -3465,12 +3283,6 @@ public class FhirR4 {
           Clinician clinician) {
     Practitioner practitionerResource = new Practitioner();
     practitionerResource.setId(clinician.getResourceID());
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner");
-      practitionerResource.setMeta(meta);
-    }
     practitionerResource.addIdentifier()
             .setSystem("http://hl7.org/fhir/sid/us-npi")
             .setValue(clinician.npi);
@@ -3517,10 +3329,6 @@ public class FhirR4 {
     if (USE_US_CORE_IG) {
       // generate an accompanying PractitionerRole resource
       PractitionerRole practitionerRole = new PractitionerRole();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitionerrole");
-      practitionerRole.setMeta(meta);
       practitionerRole.setPractitioner(getPolarisReference(practitionerResource));
       practitionerRole.setOrganization(getPolarisOrganizationReference());
       practitionerRole.addCode(
