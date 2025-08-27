@@ -350,5 +350,5 @@ public abstract class ExportHelper {
    * bundles.
    */
   public static final List<String> UNDUPLICATED_FHIR_RESOURCES = Arrays.asList(
-          "Location", "Organization", "Practitioner");
+          "Location", "Organization", "Practitioner", "PractitionerRole");
 }
