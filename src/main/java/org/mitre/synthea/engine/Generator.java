@@ -76,7 +76,7 @@ public class Generator {
   private boolean onlyVeterans;
   private Module keepPatientsModule;
   private Long maxAttemptsToKeepPatient;
-  public static String DEFAULT_STATE = "Massachusetts";
+  public static String DEFAULT_STATE = "Alberta";
   private Exporter.ExporterRuntimeOptions exporterRuntimeOptions;
   public static EntityManager entityManager;
   public final int threadPoolSize;

@@ -649,12 +649,12 @@ public class FhirR4 {
 
       aPList.add(aProvider);
 
-      /*
+      
       // Add location
       Appointment.AppointmentParticipantComponent aLoc = new Appointment.AppointmentParticipantComponent();
       aLoc.setActor(encounterResource.getLocation().get(0).getLocation());
       aLoc.setStatus(Appointment.ParticipationStatus.ACCEPTED);
-      aPList.add(aLoc);*/
+      aPList.add(aLoc);
 
       //Add patient
       Appointment.AppointmentParticipantComponent aPatient = new Appointment.AppointmentParticipantComponent();
@@ -1086,15 +1086,19 @@ public class FhirR4 {
 
     encounterResource.setServiceProvider(getPolarisOrganizationReference());
 
-    /*if (USE_US_CORE_IG) {
+    if (USE_US_CORE_IG) {
       Reference reference;
       if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
         reference = addPatientHomePolarisLocation(bundle);
       } else {
         reference = findLocationPolarisReference(provider, bundle);
       }
+      if (reference == null) {
+        provider(bundle, provider);
+        reference = findLocationPolarisReference(provider, bundle);
+      }
       encounterResource.addLocation().setLocation(reference);
-    }*/
+    }
 
     if (encounter.clinician != null) {
       if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
@@ -1266,7 +1270,7 @@ public class FhirR4 {
         if (managingOrg != null
             && managingOrg.hasIdentifier()
             && managingOrg.getIdentifier().hasValue()
-            && managingOrg.getIdentifier().getValue().equals(provider.getResourceID())) {
+            && managingOrg.getIdentifier().getValue().equals(polarisInstance)) {
           return getPolarisReference(entry.getResource());
         }
       }
