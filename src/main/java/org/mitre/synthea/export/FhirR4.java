@@ -732,6 +732,16 @@ public class FhirR4 {
     // Add general practitioner reference if ID was provided via command line
     if (generalPractitionerRolePolarisIdentifier != null && !generalPractitionerRolePolarisIdentifier.isEmpty()) {
       patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
+    } else if (person.record.encounters.size() > 0) {
+      // Set general practitioner to the first encounter's clinician
+      Reference reference = findPolarisPractitionerRole(person.record.encounters.get(0).clinician, bundle);
+      if (reference != null) {
+        patientResource.addGeneralPractitioner(reference);
+      } else {
+        BundleEntryComponent practitioner = practitioner(bundle, person.record.encounters.get(0).clinician);
+        patientResource.addGeneralPractitioner(getPolarisReference(practitioner));
+      }
+      patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", null));
     }
 
     if (person.attributes.get(Person.IDENTIFIER_PASSPORT) != null) {
