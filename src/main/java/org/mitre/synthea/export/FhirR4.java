@@ -580,7 +580,16 @@ public class FhirR4 {
   private static BundleEntryComponent encounterServiceRequest(Person person, BundleEntryComponent personEntry,
                                                            Bundle bundle, Encounter encounter,
                                                            BundleEntryComponent encounterEntry) {
+    CodeMapper mapper = Exporter.getCodeMapper("SERVICEREQUEST");
+    String categoryCode = null;
+    if (mapper != null && mapper.canMap("category")) {
+      categoryCode = mapper.map("category", person);
+    }
+
     ServiceRequest serviceRequest = (ServiceRequest) new ServiceRequest()
+        .addCategory(new CodeableConcept(new Coding()
+          .setSystem("http://hl7.org/fhir/ValueSet/servicerequest-category")
+          .setCode(categoryCode)))
         .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
         .setIntent(ServiceRequest.ServiceRequestIntent.ORDER)
         .setAuthoredOn(new Date(encounter.start))
