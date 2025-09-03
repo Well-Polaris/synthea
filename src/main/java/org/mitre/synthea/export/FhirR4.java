@@ -772,7 +772,6 @@ public class FhirR4 {
           BundleEntryComponent practitioner = practitioner(bundle, person.record.encounters.get(0).clinician);
           patientResource.addGeneralPractitioner(getPolarisReference(practitioner));
         }
-        patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", null));
       }
     }
 
