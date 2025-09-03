@@ -32,11 +32,11 @@ public abstract class FhirPractitionerExporterR4 {
    * Export the practitioner in FHIR R4 format.
    */
   public static void export(RandomNumberGenerator rand, long stop) {
-    boolean limitingToGeneralPractitioner =
-        Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false)
-        && Config.get("exporter.fhir.generalPractitionerId", null) != null;
+    boolean limitingToGeneralPractitionerRole =
+        Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitionerRole", false)
+        && Config.get("exporter.fhir.generalPractitionerRolePolarisIdentifier", null) != null;
 
-    if (Config.getAsBoolean("exporter.practitioner.fhir.export") && !limitingToGeneralPractitioner) {
+    if (Config.getAsBoolean("exporter.practitioner.fhir.export") && !limitingToGeneralPractitionerRole) {
       Bundle bundle = new Bundle();
       if (Config.getAsBoolean("exporter.fhir.transaction_bundle")) {
         bundle.setType(BundleType.BATCH);
@@ -55,16 +55,7 @@ public abstract class FhirPractitionerExporterR4 {
             ArrayList<Clinician> docs = clinicians.get(specialty);
             for (Clinician doc : docs) {
               if (doc.getEncounterCount() > 0) {
-                BundleEntryComponent entry = FhirR4.practitioner(bundle, doc);
-                Practitioner practitioner = (Practitioner) entry.getResource();
-                practitioner.addExtension()
-                  .setUrl(EXTENSION_URI)
-                  .setValue(new IntegerType(doc.getEncounterCount()));
-                if (doc.getProcedureCount() > 0) {
-                  practitioner.addExtension()
-                    .setUrl(PROC_EXTENSION_URI)
-                    .setValue(new IntegerType(doc.getProcedureCount()));
-                }
+                FhirR4.practitioner(bundle, doc);
               }
             }
           }

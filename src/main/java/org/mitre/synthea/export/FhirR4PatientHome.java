@@ -19,7 +19,7 @@ public class FhirR4PatientHome {
    * Provides the one and only patient home Location.
    * @return a Location resource
    */
-  public static Location getPatientHome() {
+  public static Location getPatientHome(String polarisInstance) {
     if (patientHome == null) {
       patientHome = new Location();
       patientHome.setMode(org.hl7.fhir.r4.model.Location.LocationMode.KIND);
@@ -38,6 +38,9 @@ public class FhirR4PatientHome {
       Identifier identifier = patientHome.addIdentifier();
       identifier.setSystem(FhirR4.SYNTHEA_IDENTIFIER);
       identifier.setValue(patientHome.getId());
+      patientHome.addIdentifier()
+        .setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-location-identifier")
+        .setValue("bb1ad573-19b8-9cd8-68fb-0e6f684df992");
     }
     return patientHome;
   }

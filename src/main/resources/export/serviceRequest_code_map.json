@@ -1,0 +1,16 @@
+{
+  "category": [
+    {
+      "code": "108252007",
+      "display": "Lab Request"
+    },
+    {
+      "code": "363679005",
+      "display": "DI Request"
+    },
+    {
+      "code": "other",
+      "display": "Other"
+    }
+  ]
+}

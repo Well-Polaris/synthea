@@ -144,6 +144,7 @@ import org.mitre.synthea.engine.Components;
 import org.mitre.synthea.engine.Components.Attachment;
 import org.mitre.synthea.export.rif.CodeMapper;
 import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.RandomCollection;
 import org.mitre.synthea.helpers.RandomNumberGenerator;
 import org.mitre.synthea.helpers.RandomValueGenerator;
 import org.mitre.synthea.helpers.SimpleCSV;
@@ -242,16 +243,30 @@ public class FhirR4 {
   private static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
   private static final String PASSPORT_URI = Config.get("generate.geography.passport_uri", "http://hl7.org/fhir/sid/passport-USA");
 
-  private static String generalPractitionerId = Config.get("exporter.fhir.generalPractitionerId", null);
+  private static String generalPractitionerRolePolarisIdentifier = Config.get("exporter.fhir.generalPractitionerRolePolarisIdentifier", null);
 
   private static boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus", false);
 
-  private static String polarisOrganizationId = Config.get("exporter.fhir.polarisOrganizationId", null);
   private static String polarisInstance = Config.get("exporter.fhir.polarisInstance", "cpar");
-  private static boolean polarisLimitToGeneralPractitioner = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitioner", false);
+  private static boolean polarisLimitToGeneralPractitionerRole = Config.getAsBoolean("exporter.fhir.polarisLimitToGeneralPractitionerRole", false);
 
   private static final HashSet<Class<? extends Resource>> includedResources = new HashSet<>();
   private static final HashSet<Class<? extends Resource>> excludedResources = new HashSet<>();
+
+  private static RandomCollection<BooleanType> patientActiveStatusDistribution = new RandomCollection<>();
+
+  static {
+    patientActiveStatusDistribution.add(0.6, new BooleanType(true));
+    patientActiveStatusDistribution.add(0.3, new BooleanType(false));
+    patientActiveStatusDistribution.add(0.1, new BooleanType());
+  }
+
+  private static RandomCollection<Boolean> patientGeneralPractititionerDistribution = new RandomCollection<>();
+
+  static {
+    patientGeneralPractititionerDistribution.add(0.9, true);
+    patientGeneralPractititionerDistribution.add(0.1, false);
+  }
 
   static {
     reloadIncludeExclude();
@@ -529,23 +544,75 @@ public class FhirR4 {
       // Add Provenance to the Bundle
       provenance(bundle, person, stopTime);
     }
+
+    // remove encounters and references to encounters from the Bundle
+    for (int i = bundle.getEntry().size() - 1; i >= 0; i--) {
+      BundleEntryComponent entry = bundle.getEntry().get(i);
+      Resource resource = entry.getResource();
+
+      switch (resource.getResourceType()) {
+        case Encounter:
+          bundle.getEntry().remove(i);
+          break;
+        case Observation:
+          org.hl7.fhir.r4.model.Observation observationResource = (org.hl7.fhir.r4.model.Observation) resource;
+          observationResource.setEncounter(null);
+          break;
+        case ServiceRequest:
+          org.hl7.fhir.r4.model.ServiceRequest serviceRequestResource = (org.hl7.fhir.r4.model.ServiceRequest) resource;
+          serviceRequestResource.setEncounter(null);
+          break;
+        case Procedure:
+          org.hl7.fhir.r4.model.Procedure procedureResource = (org.hl7.fhir.r4.model.Procedure) resource;
+          procedureResource.setEncounter(null);
+          break;
+        case MedicationRequest:
+          org.hl7.fhir.r4.model.MedicationRequest medicationRequestResource = (org.hl7.fhir.r4.model.MedicationRequest) resource;
+          medicationRequestResource.setEncounter(null);
+          break;
+        case Condition:
+          org.hl7.fhir.r4.model.Condition conditionResource = (org.hl7.fhir.r4.model.Condition) resource;
+          conditionResource.setEncounter(null);
+          break;
+        case Immunization:
+          org.hl7.fhir.r4.model.Immunization immunizationResource = (org.hl7.fhir.r4.model.Immunization) resource;
+          immunizationResource.setEncounter(null);
+          break;
+        case AllergyIntolerance:
+          org.hl7.fhir.r4.model.AllergyIntolerance allergyResource = (org.hl7.fhir.r4.model.AllergyIntolerance) resource;
+          allergyResource.setEncounter(null);
+          break;
+        case DocumentReference:
+          org.hl7.fhir.r4.model.DocumentReference documentReferenceResource = (org.hl7.fhir.r4.model.DocumentReference) resource;
+          documentReferenceResource.setContext(null);
+          break;
+        default:
+          break;
+      }
+    }
     return bundle;
   }
 
   private static BundleEntryComponent encounterServiceRequest(Person person, BundleEntryComponent personEntry,
                                                            Bundle bundle, Encounter encounter,
                                                            BundleEntryComponent encounterEntry) {
+    CodeMapper mapper = Exporter.getCodeMapper("SERVICEREQUEST");
+    String categoryCode = null;
+    if (mapper != null && mapper.canMap("category")) {
+      categoryCode = mapper.map("category", person);
+    }
+
     ServiceRequest serviceRequest = (ServiceRequest) new ServiceRequest()
+        .addCategory(new CodeableConcept(new Coding()
+          .setSystem("http://hl7.org/fhir/ValueSet/servicerequest-category")
+          .setCode(categoryCode)))
         .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
         .setIntent(ServiceRequest.ServiceRequestIntent.ORDER)
         .setAuthoredOn(new Date(encounter.start))
-        .setSubject(new Reference(personEntry.getFullUrl()))
-        .setEncounter(new Reference(encounterEntry.getFullUrl()))
+        .setSubject(getPolarisReference(personEntry))
         .setCode(new CodeableConcept().setText("Request for service"))
         .setId(String.valueOf(UUID.randomUUID()));
-    serviceRequest.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/servicerequest-identifier")
-        .setValue(encounter.uuid.toString());
+    serviceRequest.addIdentifier(getPolarisIdentifier(serviceRequest));
     return newEntry(bundle, serviceRequest, serviceRequest.getId());
   }
 
@@ -555,6 +622,7 @@ public class FhirR4 {
 
     org.hl7.fhir.r4.model.Appointment apptResource = new org.hl7.fhir.r4.model.Appointment();
     apptResource.setId(String.valueOf(UUID.randomUUID()));
+    apptResource.addIdentifier(getPolarisIdentifier(apptResource));
 
     // convert participant
     org.hl7.fhir.r4.model.Encounter encounterResource =
@@ -606,7 +674,7 @@ public class FhirR4 {
 
       aPList.add(aProvider);
 
-
+      
       // Add location
       Appointment.AppointmentParticipantComponent aLoc = new Appointment.AppointmentParticipantComponent();
       aLoc.setActor(encounterResource.getLocation().get(0).getLocation());
@@ -661,15 +729,10 @@ public class FhirR4 {
   private static BundleEntryComponent basicInfo(Person person, Bundle bundle, long stopTime) {
     Patient patientResource = new Patient();
 
-    patientResource.addIdentifier().setSystem(SYNTHEA_IDENTIFIER)
-        .setValue((String) person.attributes.get(Person.ID));
+    patientResource.setId((String) person.attributes.get(Person.ID));
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient");
-      patientResource.setMeta(meta);
-    }
+    patientResource.addIdentifier().setSystem(SYNTHEA_IDENTIFIER)
+        .setValue(patientResource.getId());
 
     Code mrnCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "MR", "Medical Record Number");
     patientResource.addIdentifier()
@@ -677,9 +740,7 @@ public class FhirR4 {
         .setSystem("http://hospital.smarthealthit.org")
         .setValue((String) person.attributes.get(Person.ID));
 
-    patientResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/patient-identifier")
-        .setValue((String) person.attributes.get(Person.ID));
+    patientResource.addIdentifier(getPolarisIdentifier(patientResource));
 
     Code jhnCode = new Code("http://terminology.hl7.org/CodeSystem/v2-0203", "JHN", "Jurisdictional Health Number");
     patientResource.addIdentifier()
@@ -691,12 +752,27 @@ public class FhirR4 {
     if (Config.get("exporter.fhir.patientStatus") != null) {
       boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus");
       patientResource.setActive(patientStatus);
+    } else {
+      BooleanType active = patientActiveStatusDistribution.next(person);
+      if (active.hasValue()) {
+        patientResource.setActive(active.getValue());
+      }
     }
     
     // Add general practitioner reference if ID was provided via command line
-    if (generalPractitionerId != null && !generalPractitionerId.isEmpty()) {
-      patientResource.addGeneralPractitioner()
-          .setReference("Practitioner/" + generalPractitionerId);
+    if (generalPractitionerRolePolarisIdentifier != null && !generalPractitionerRolePolarisIdentifier.isEmpty()) {
+      patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
+    } else if (person.record.encounters.size() > 0) {
+      if (patientGeneralPractititionerDistribution.next(person)) {
+        // Set general practitioner to the first encounter's clinician
+        Reference reference = findPolarisPractitionerRole(person.record.encounters.get(0).clinician, bundle);
+        if (reference != null) {
+          patientResource.addGeneralPractitioner(reference);
+        } else {
+          BundleEntryComponent practitioner = practitioner(bundle, person.record.encounters.get(0).clinician);
+          patientResource.addGeneralPractitioner(getPolarisReference(practitioner));
+        }
+      }
     }
 
     if (person.attributes.get(Person.IDENTIFIER_PASSPORT) != null) {
@@ -975,7 +1051,7 @@ public class FhirR4 {
       patientResource.addExtension(qalyExtension);
     }
 
-    return newEntry(bundle, patientResource, (String) person.attributes.get(Person.ID));
+    return newEntry(bundle, patientResource, patientResource.getId());
   }
 
   /**
@@ -1010,21 +1086,12 @@ public class FhirR4 {
   private static BundleEntryComponent encounter(Person person, BundleEntryComponent personEntry,
                                                 Bundle bundle, Encounter encounter) {
     org.hl7.fhir.r4.model.Encounter encounterResource = new org.hl7.fhir.r4.model.Encounter();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter");
-      encounterResource.setMeta(meta);
-    }
+    encounterResource.setId(encounter.uuid.toString());
 
-    encounterResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/encounter-identifier")
-        .setValue(encounter.uuid.toString());
+    encounterResource.addIdentifier(getPolarisIdentifier(encounterResource));
 
     Patient patient = (Patient) personEntry.getResource();
-    encounterResource.setSubject(new Reference()
-        .setReference(personEntry.getFullUrl())
-        .setDisplay(patient.getNameFirstRep().getNameAsSingleString()));
+    encounterResource.setSubject(getPolarisReference(personEntry));
 
     encounterResource.setStatus(EncounterStatus.FINISHED);
     if (encounter.codes.isEmpty()) {
@@ -1058,65 +1125,32 @@ public class FhirR4 {
       provider = person.getProvider(EncounterType.WELLNESS, encounter.start);
     }
 
-    if (polarisOrganizationId != null) {
-      encounterResource.setServiceProvider(new Reference("Organization/"  + polarisOrganizationId));
-    } else {
-      if (TRANSACTION_BUNDLE) {
-        encounterResource.setServiceProvider(new Reference(
-                ExportHelper.buildFhirSearchUrl("Organization", provider.getResourceID())));
-      } else {
-        String providerFullUrl = findProviderUrl(provider, bundle);
-        if (providerFullUrl != null) {
-          encounterResource.setServiceProvider(new Reference(providerFullUrl));
-        } else {
-          BundleEntryComponent providerOrganization = provider(bundle, provider);
-          encounterResource.setServiceProvider(new Reference(providerOrganization.getFullUrl()));
-        }
-      }
-    }
-    encounterResource.getServiceProvider().setDisplay(provider.name);
+    encounterResource.setServiceProvider(getPolarisOrganizationReference());
+
     if (USE_US_CORE_IG) {
-      String referenceUrl;
-      String display;
-      if (TRANSACTION_BUNDLE) {
-        if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
-          referenceUrl = ExportHelper.buildFhirSearchUrl("Location",
-              FhirR4PatientHome.getPatientHome().getId());
-          display = "Patient's Home";
-        } else {
-          referenceUrl = ExportHelper.buildFhirSearchUrl("Location",
-              provider.getResourceLocationID());
-          display = provider.name;
-        }
+      Reference reference;
+      if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
+        reference = addPatientHomePolarisLocation(bundle);
       } else {
-        if (encounter.type.equals(EncounterType.VIRTUAL.toString())) {
-          referenceUrl = addPatientHomeLocation(bundle);
-          display = "Patient's Home";
-        } else {
-          referenceUrl = findLocationUrl(provider, bundle);
-          display = provider.name;
-        }
+        reference = findLocationPolarisReference(provider, bundle);
       }
-      encounterResource.addLocation().setLocation(new Reference()
-          .setReference(referenceUrl)
-          .setDisplay(display));
+      if (reference == null) {
+        provider(bundle, provider);
+        reference = findLocationPolarisReference(provider, bundle);
+      }
+      encounterResource.addLocation().setLocation(reference);
     }
 
     if (encounter.clinician != null) {
-      if (polarisLimitToGeneralPractitioner && generalPractitionerId != null) {
-        encounterResource.addParticipant().setIndividual(
-            new Reference("Practitioner/" + generalPractitionerId));
-      } else if (TRANSACTION_BUNDLE) {
-        encounterResource.addParticipant().setIndividual(new Reference(
-                ExportHelper.buildFhirNpiSearchUrl(encounter.clinician)));
+      if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
+        encounterResource.addParticipant().setIndividual(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
       } else {
-        String practitionerFullUrl = findPractitioner(encounter.clinician, bundle);
-        if (practitionerFullUrl != null) {
-          encounterResource.addParticipant().setIndividual(new Reference(practitionerFullUrl));
+        Reference reference = findPolarisPractitionerRole(encounter.clinician, bundle);
+        if (reference != null) {
+          encounterResource.addParticipant().setIndividual(reference);
         } else {
           BundleEntryComponent practitioner = practitioner(bundle, encounter.clinician);
-          encounterResource.addParticipant().setIndividual(
-                  new Reference(practitioner.getFullUrl()));
+          encounterResource.addParticipant().setIndividual(getPolarisReference(practitioner));
         }
       }
       encounterResource.getParticipantFirstRep().getIndividual()
@@ -1136,7 +1170,7 @@ public class FhirR4 {
       encounterResource.setHospitalization(hospitalization);
     }
 
-    BundleEntryComponent entry = newEntry(bundle, encounterResource, encounter.uuid.toString());
+    BundleEntryComponent entry = newEntry(bundle, encounterResource, encounterResource.getId());
     if (USE_US_CORE_IG) {
       // US Core Encounters should have an identifier to support the required
       // Encounter.identifier search parameter
@@ -1169,6 +1203,26 @@ public class FhirR4 {
   }
 
   /**
+   * Find the provider entry in this bundle, and return a reference.
+   *
+   * @param provider A given provider.
+   * @param bundle   The current bundle being generated.
+   * @return Reference if found, otherwise null.
+   */
+  private static Reference findPolarisProvider(Provider provider, Bundle bundle) {
+    for (BundleEntryComponent entry : bundle.getEntry()) {
+      if (entry.getResource().fhirType().equals("Organization")) {
+        Organization org = (Organization) entry.getResource();
+        if (org.getIdentifierFirstRep().getValue() != null
+            && org.getIdentifierFirstRep().getValue().equals(provider.getResourceID())) {
+          return getPolarisReference(entry.getResource());
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Finds the "patient's home" Location resource and returns the URL. If it does not yet exist in
    * the bundle, it will create it.
    * @param bundle the bundle to look in for the patient home resource
@@ -1178,17 +1232,36 @@ public class FhirR4 {
     String locationURL = null;
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Location")) {
-        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome().getId())) {
+        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome(polarisInstance).getId())) {
           locationURL = entry.getFullUrl();
         }
       }
     }
     if (locationURL == null) {
-      org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome();
+      org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome(polarisInstance);
       BundleEntryComponent bec = newEntry(bundle, location, location.getId());
       locationURL = bec.getFullUrl();
     }
     return locationURL;
+  }
+
+  /**
+   * Finds the "patient's home" Location resource and returns the Reference. If it does not yet exist in
+   * the bundle, it will create it.
+   * @param bundle the bundle to look in for the patient home resource
+   * @return the Reference for the patient home resource
+   */
+  public static Reference addPatientHomePolarisLocation(Bundle bundle) {
+    for (BundleEntryComponent entry : bundle.getEntry()) {
+      if (entry.getResource().fhirType().equals("Location")) {
+        if (entry.getResource().getId().equals(FhirR4PatientHome.getPatientHome(polarisInstance).getId())) {
+          return getPolarisReference(entry.getResource());
+        }
+      }
+    }
+    org.hl7.fhir.r4.model.Location location = FhirR4PatientHome.getPatientHome(polarisInstance);
+    BundleEntryComponent bec = newEntry(bundle, location, location.getId());
+    return getPolarisReference(bec.getResource());
   }
 
   /**
@@ -1220,6 +1293,33 @@ public class FhirR4 {
   }
 
   /**
+   * Find the Location entry in this bundle for the given provider, and return the reference.
+   *
+   * @param provider A given provider.
+   * @param bundle The current bundle being generated.
+   * @return Reference if found, otherwise null.
+   */
+  private static Reference findLocationPolarisReference(Provider provider, Bundle bundle) {
+    if (provider == null) {
+      return null;
+    }
+    for (BundleEntryComponent entry : bundle.getEntry()) {
+      if (entry.getResource().fhirType().equals("Location")) {
+        org.hl7.fhir.r4.model.Location location =
+            (org.hl7.fhir.r4.model.Location) entry.getResource();
+        Reference managingOrg = location.getManagingOrganization();
+        if (managingOrg != null
+            && managingOrg.hasIdentifier()
+            && managingOrg.getIdentifier().hasValue()
+            && managingOrg.getIdentifier().getValue().equals(polarisInstance)) {
+          return getPolarisReference(entry.getResource());
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Find the Practitioner entry in this bundle, and return the associated "fullUrl"
    * attribute.
    * @param clinician A given clinician.
@@ -1232,6 +1332,38 @@ public class FhirR4 {
         Practitioner doc = (Practitioner) entry.getResource();
         if (doc.getIdentifierFirstRep().getValue().equals(clinician.npi)) {
           return entry.getFullUrl();
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find the PractitionerRole entry in this bundle, and return the associated Polaris reference
+   * attribute.
+   * @param clinician A given clinician.
+   * @param bundle The current bundle being generated.
+   * @return Polaris Reference if found, otherwise null.
+   */
+  private static Reference findPolarisPractitionerRole(Clinician clinician, Bundle bundle) {
+    for (BundleEntryComponent entry : bundle.getEntry()) {
+      if (entry.getResource().fhirType().equals("Practitioner")) {
+        Practitioner doc = (Practitioner) entry.getResource();
+        Identifier docIdentifier = doc.getIdentifier().stream()
+          .filter(identifier -> identifier.getSystem().endsWith("-practitioner-identifier"))
+          .findAny()
+          .orElse(null);
+        if (doc.getIdentifierFirstRep().getValue().equals(clinician.npi)) {
+          // find the PractitionerRole for this clinician
+          for (BundleEntryComponent roleEntry : bundle.getEntry()) {
+            if (roleEntry.getResource().fhirType().equals("PractitionerRole")) {
+              PractitionerRole role = (PractitionerRole) roleEntry.getResource();
+              Identifier roleIdentifier = role.getPractitioner().getIdentifier();
+              if (roleIdentifier.getSystem().equals(docIdentifier.getSystem()) && roleIdentifier.getValue().equals(docIdentifier.getValue())) {
+                return getPolarisReference(roleEntry);
+              }
+            }
+          }
         }
       }
     }
@@ -1258,6 +1390,8 @@ public class FhirR4 {
       BundleEntryComponent medicationEntry, CodeableConcept medicationCodeableConcept) {
 
     org.hl7.fhir.r4.model.Claim claimResource = new org.hl7.fhir.r4.model.Claim();
+    claimResource.setId(claim.uuid.toString());
+    claimResource.addIdentifier(getPolarisIdentifier(claimResource));
     org.hl7.fhir.r4.model.Encounter encounterResource =
             (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
 
@@ -1280,7 +1414,7 @@ public class FhirR4 {
     claimResource.setBillablePeriod(encounterResource.getPeriod());
     claimResource.setCreated(encounterResource.getPeriod().getEnd());
 
-    claimResource.setPatient(new Reference(personEntry.getFullUrl()));
+    claimResource.setPatient(getPolarisReference(personEntry));
     claimResource.setProvider(encounterResource.getServiceProvider());
 
     // set the required priority
@@ -1292,11 +1426,10 @@ public class FhirR4 {
 
     // add item for medication
     claimResource.addItem(new ItemComponent(new PositiveIntType(1),
-                    medicationCodeableConcept)
-            .addEncounter(new Reference(encounterEntry.getFullUrl())));
+                    medicationCodeableConcept));
 
     // add prescription.
-    claimResource.setPrescription(new Reference(medicationEntry.getFullUrl()));
+    claimResource.setPrescription(getPolarisReference(medicationEntry));
 
     Money moneyResource = new Money();
     moneyResource.setValue(claim.getTotalClaimCost());
@@ -1326,6 +1459,8 @@ public class FhirR4 {
       Person person, BundleEntryComponent personEntry,
       Bundle bundle, BundleEntryComponent encounterEntry, Encounter encounter) {
     org.hl7.fhir.r4.model.Claim claimResource = new org.hl7.fhir.r4.model.Claim();
+    claimResource.setId(encounter.claim.uuid.toString());
+    claimResource.addIdentifier(getPolarisIdentifier(claimResource));
     org.hl7.fhir.r4.model.Encounter encounterResource =
         (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
     claimResource.setStatus(ClaimStatus.ACTIVE);
@@ -1351,9 +1486,7 @@ public class FhirR4 {
     claimResource.setBillablePeriod(encounterResource.getPeriod());
     claimResource.setCreated(encounterResource.getPeriod().getEnd());
 
-    claimResource.setPatient(new Reference()
-        .setReference(personEntry.getFullUrl())
-        .setDisplay((String) person.attributes.get(Person.NAME)));
+    claimResource.setPatient(getPolarisReference(personEntry));
     claimResource.setProvider(encounterResource.getServiceProvider());
     if (USE_US_CORE_IG) {
       claimResource.setFacility(encounterResource.getLocationFirstRep().getLocation());
@@ -1368,8 +1501,7 @@ public class FhirR4 {
 
     // add item for encounter
     claimResource.addItem(new ItemComponent(new PositiveIntType(1),
-          encounterResource.getTypeFirstRep())
-        .addEncounter(new Reference(encounterEntry.getFullUrl())));
+          encounterResource.getTypeFirstRep()));
 
     int itemSequence = 2;
     int conditionSequence = 1;
@@ -1393,14 +1525,14 @@ public class FhirR4 {
         claimResource.addItem(claimItem);
 
         if (item instanceof Procedure) {
-          Type procedureReference = new Reference(item.fullUrl);
+          Type procedureReference = getPolarisReference("Procedure", item.uuid.toString());
           ProcedureComponent claimProcedure = new ProcedureComponent(
               new PositiveIntType(procedureSequence), procedureReference);
           claimResource.addProcedure(claimProcedure);
           claimItem.addProcedureSequence(procedureSequence);
           procedureSequence++;
         } else {
-          Reference informationReference = new Reference(item.fullUrl);
+          /*Reference informationReference = new Reference(item.fullUrl);
           SupportingInformationComponent informationComponent =
               new SupportingInformationComponent();
           informationComponent.setSequence(informationSequence);
@@ -1412,12 +1544,12 @@ public class FhirR4 {
           informationComponent.setCategory(category);
           claimResource.addSupportingInfo(informationComponent);
           claimItem.addInformationSequence(informationSequence);
-          informationSequence++;
+          informationSequence++;*/
         }
       } else {
         // assume it's a Condition, we don't have a Condition class specifically
         // add diagnosisComponent to claim
-        Reference diagnosisReference = new Reference(item.fullUrl);
+        Reference diagnosisReference = getPolarisReference("Condition", item.uuid.toString());
         DiagnosisComponent diagnosisComponent =
             new DiagnosisComponent(
                 new PositiveIntType(conditionSequence), diagnosisReference);
@@ -1499,7 +1631,7 @@ public class FhirR4 {
         "http://terminology.hl7.org/CodeSystem/adjudication"));
 
     // Set References
-    eob.setPatient(new Reference(personEntry.getFullUrl()));
+    eob.setPatient(getPolarisReference(personEntry));
     if (USE_US_CORE_IG) {
       eob.setFacility(encounterResource.getLocationFirstRep().getLocation());
     }
@@ -1507,35 +1639,25 @@ public class FhirR4 {
     ServiceRequest referral = (ServiceRequest) new ServiceRequest()
         .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
         .setIntent(ServiceRequest.ServiceRequestIntent.ORDER)
-        .setSubject(new Reference(personEntry.getFullUrl()))
+        .setSubject(getPolarisReference(personEntry))
         .setId("referral");
-    referral.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/servicerequest-identifier")
-        .setValue(encounter.uuid.toString());
     CodeableConcept primaryCareRole = new CodeableConcept().addCoding(new Coding()
         .setCode("primary")
         .setSystem("http://terminology.hl7.org/CodeSystem/claimcareteamrole")
         .setDisplay("Primary provider"));
     Reference providerReference = new Reference().setDisplay("Unknown");
     if (encounter.clinician != null) {
-      if (polarisLimitToGeneralPractitioner && generalPractitionerId != null) {
-        providerReference = new Reference("Practitioner/" + generalPractitionerId);
+      if (polarisLimitToGeneralPractitionerRole && generalPractitionerRolePolarisIdentifier != null) {
+        providerReference = getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier);
       } else {
-        String practitionerFullUrl = TRANSACTION_BUNDLE
-            ? ExportHelper.buildFhirNpiSearchUrl(encounter.clinician)
-            : findPractitioner(encounter.clinician, bundle);
-        if (practitionerFullUrl != null) {
-          providerReference = new Reference(practitionerFullUrl);
-        }
+        providerReference = findPolarisPractitionerRole(encounter.clinician, bundle);
       }
     } else if (encounter.provider != null) {
-      String providerUrl = TRANSACTION_BUNDLE
-          ? ExportHelper.buildFhirSearchUrl("Location",
-                    encounter.provider.getResourceLocationID())
-          : findProviderUrl(encounter.provider, bundle);
-      if (providerUrl != null) {
-        providerReference = new Reference(providerUrl);
-      }
+      providerReference = findPolarisProvider(encounter.provider, bundle);
+    }
+
+    if (providerReference == null || providerReference.getIdentifier() == null || providerReference.getIdentifier().getValue() == null) {
+      providerReference = null;
     }
 
     eob.setProvider(providerReference);
@@ -1555,7 +1677,7 @@ public class FhirR4 {
     coverage.setId("coverage");
     coverage.setStatus(CoverageStatus.ACTIVE);
     coverage.setType(new CodeableConcept().setText(payer.getName()));
-    coverage.setBeneficiary(new Reference(personEntry.getFullUrl()));
+    coverage.setBeneficiary(getPolarisReference(personEntry));
     coverage.addPayor(new Reference().setDisplay(payer.getName()));
     eob.addContained(coverage);
     ExplanationOfBenefit.InsuranceComponent insuranceComponent =
@@ -1574,7 +1696,7 @@ public class FhirR4 {
     eob.addIdentifier()
         .setSystem("https://bluebutton.cms.gov/resources/identifier/claim-group")
         .setValue("99999999999");
-    eob.setClaim(new Reference().setReference(claimEntry.getFullUrl()));
+    eob.setClaim(getPolarisReference(claimEntry));
     eob.setCreated(encounterResource.getPeriod().getEnd());
     eob.setType(claimResource.getType());
 
@@ -1614,7 +1736,6 @@ public class FhirR4 {
       itemComponent.setDiagnosisSequence(item.getDiagnosisSequence());
       itemComponent.setInformationSequence(item.getInformationSequence());
       itemComponent.setNet(item.getNet());
-      itemComponent.setEncounter(item.getEncounter());
       itemComponent.setServiced(encounterResource.getPeriod());
       itemComponent.setCategory(new CodeableConcept().addCoding(new Coding()
           .setSystem("https://bluebutton.cms.gov/resources/variables/line_cms_type_srvc_cd")
@@ -1781,28 +1902,17 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           HealthRecord.Entry condition) {
     Condition conditionResource = new Condition();
-    
-    conditionResource.addIdentifier()
-        .setSystem("http://fhir.apps.health/" + polarisInstance + "/NamingSystem/condition-identifier")
-        .setValue(condition.uuid.toString());
+    conditionResource.setId(condition.uuid.toString());
+
+    conditionResource.addIdentifier(getPolarisIdentifier(conditionResource));
 
     if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      if (useUSCore5() || useUSCore6()) {
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-encounter-diagnosis");
-      } else {
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition");
-      }
-      conditionResource.setMeta(meta);
       conditionResource.addCategory(new CodeableConcept().addCoding(new Coding(
           "http://terminology.hl7.org/CodeSystem/condition-category", "encounter-diagnosis",
           "Encounter Diagnosis")));
     }
 
-    conditionResource.setSubject(new Reference(personEntry.getFullUrl()));
-    conditionResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    conditionResource.setSubject(getPolarisReference(personEntry));
 
     Code code = condition.codes.get(0);
     CodeableConcept concept = mapCodeToCodeableConcept(code, SNOMED_URI);
@@ -1830,7 +1940,7 @@ public class FhirR4 {
     }
 
     BundleEntryComponent conditionEntry =
-        newEntry(bundle, conditionResource, condition.uuid.toString());
+        newEntry(bundle, conditionResource, conditionResource.getId());
     condition.fullUrl = conditionEntry.getFullUrl();
     return conditionEntry;
   }
@@ -1849,6 +1959,7 @@ public class FhirR4 {
           HealthRecord.Allergy allergy) {
 
     AllergyIntolerance allergyResource = new AllergyIntolerance();
+    allergyResource.setId(allergy.uuid.toString());
     allergyResource.setRecordedDate(new Date(allergy.start));
 
     CodeableConcept status = new CodeableConcept();
@@ -1856,9 +1967,7 @@ public class FhirR4 {
       .setSystem("http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical");
     allergyResource.setClinicalStatus(status);
 
-    allergyResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/allergy-intolerance-identifier")
-        .setValue(allergyResource.getId());
+    allergyResource.addIdentifier(getPolarisIdentifier(allergyResource));
 
     if (allergy.stop == 0) {
       status.getCodingFirstRep().setCode("active");
@@ -1901,7 +2010,7 @@ public class FhirR4 {
       .setCode("confirmed");
     allergyResource.setVerificationStatus(verification);
 
-    allergyResource.setPatient(new Reference(personEntry.getFullUrl()));
+    allergyResource.setPatient(getPolarisReference(personEntry));
     Code code = allergy.codes.get(0);
     allergyResource.setCode(mapCodeToCodeableConcept(code, SNOMED_URI));
 
@@ -1932,13 +2041,7 @@ public class FhirR4 {
       });
     }
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance");
-      allergyResource.setMeta(meta);
-    }
-    BundleEntryComponent allergyEntry = newEntry(bundle, allergyResource, allergy.uuid.toString());
+    BundleEntryComponent allergyEntry = newEntry(bundle, allergyResource, allergyResource.getId());
     allergy.fullUrl = allergyEntry.getFullUrl();
     return allergyEntry;
   }
@@ -1958,13 +2061,11 @@ public class FhirR4 {
           Observation observation) {
     org.hl7.fhir.r4.model.Observation observationResource =
         new org.hl7.fhir.r4.model.Observation();
+    observationResource.setId(observation.uuid.toString());
 
-    observationResource.setSubject(new Reference(personEntry.getFullUrl()));
-    observationResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    observationResource.setSubject(getPolarisReference(personEntry));
 
-    observationResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/observation-identifier")
-        .setValue(observationResource.getId());
+    observationResource.addIdentifier(getPolarisIdentifier(observationResource));
 
     observationResource.setStatus(ObservationStatus.FINAL);
 
@@ -2011,73 +2112,7 @@ public class FhirR4 {
     observationResource.setEffective(convertFhirDateTime(observation.start, true));
     observationResource.setIssued(new Date(observation.start));
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      // add the specific profile based on code
-      String codeMappingUri = US_CORE_MAPPING.get(LOINC_URI, code.code);
-      if (codeMappingUri != null) {
-        meta.addProfile(codeMappingUri);
-        if (!codeMappingUri.contains("/us/core/") && observation.category.equals("vital-signs")) {
-          meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-vital-signs");
-        }
-      } else if (observation.report != null && observation.category.equals("laboratory")) {
-        meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
-      }
-
-      if (observation.category != null) {
-        if (useUSCore6()) {
-          switch (observation.category) {
-            case "imaging":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-result");
-              break;
-            case "social-history":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-simple-observation");
-              break;
-            case "survey":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-screening-assessment");
-              break;
-            case "exam":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-result");
-              break;
-            case "laboratory":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
-              break;
-            default:
-              // do nothing
-          }
-        } else if (useUSCore5()) {
-          switch (observation.category) {
-            case "imaging":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-imaging");
-              break;
-            case "social-history":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-social-history");
-              break;
-            case "survey":
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-survey");
-              // note that the -sdoh-assessment profile is a subset of -survey,
-              // those are handled by code in US_CORE_MAPPING above
-              break;
-            case "exam":
-              // this one is a little nebulous -- are all exams also clinical tests?
-              meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-clinical-test");
-
-              observationResource.addCategory().addCoding().setCode("clinical-test")
-                  .setSystem("http://hl7.org/fhir/us/core/CodeSystem/us-core-observation-category")
-                  .setDisplay("Clinical Test");
-              break;
-            default:
-              // do nothing
-          }
-        }
-      }
-
-      if (meta.hasProfile()) {
-        observationResource.setMeta(meta);
-      }
-    }
-
-    BundleEntryComponent entry = newEntry(bundle, observationResource, observation.uuid.toString());
+    BundleEntryComponent entry = newEntry(bundle, observationResource, observationResource.getId());
     observation.fullUrl = entry.getFullUrl();
     return entry;
   }
@@ -2160,18 +2195,10 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           Procedure procedure) {
     org.hl7.fhir.r4.model.Procedure procedureResource = new org.hl7.fhir.r4.model.Procedure();
-    procedureResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/procedure-identifier")
-        .setValue(procedure.uuid.toString());
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure");
-      procedureResource.setMeta(meta);
-    }
+    procedureResource.setId(procedure.uuid.toString());
+    procedureResource.addIdentifier(getPolarisIdentifier(procedureResource));
     procedureResource.setStatus(ProcedureStatus.COMPLETED);
-    procedureResource.setSubject(new Reference(personEntry.getFullUrl()));
-    procedureResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    procedureResource.setSubject(getPolarisReference(personEntry));
     if (USE_US_CORE_IG) {
       org.hl7.fhir.r4.model.Encounter encounterResource =
           (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
@@ -2195,9 +2222,7 @@ public class FhirR4 {
 
       BundleEntryComponent reasonCondition = findConditionResourceByCode(bundle, reason.code);
       if (reasonCondition != null) {
-        procedureResource.addReasonReference()
-          .setReference(reasonCondition.getFullUrl())
-          .setDisplay(reason.display);
+        procedureResource.addReasonReference(getPolarisReference(reasonCondition));
       } else {
         // we didn't find a matching Condition,
         // fallback to just reason code
@@ -2207,7 +2232,7 @@ public class FhirR4 {
     }
 
     BundleEntryComponent procedureEntry =
-        newEntry(bundle, procedureResource, procedure.uuid.toString());
+        newEntry(bundle, procedureResource, procedureResource.getId());
     procedure.fullUrl = procedureEntry.getFullUrl();
     return procedureEntry;
   }
@@ -2223,11 +2248,8 @@ public class FhirR4 {
   private static BundleEntryComponent device(
           BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device) {
     Device deviceResource = new Device();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device");
-      deviceResource.setMeta(meta);
-    }
+    deviceResource.setId(device.uuid.toString());
+    deviceResource.addIdentifier(getPolarisIdentifier(deviceResource));
     deviceResource.addUdiCarrier()
         .setDeviceIdentifier(device.deviceIdentifier)
         .setCarrierHRF(device.udi);
@@ -2247,7 +2269,7 @@ public class FhirR4 {
         .setName(device.codes.get(0).display)
         .setType(DeviceNameType.USERFRIENDLYNAME);
     deviceResource.setType(mapCodeToCodeableConcept(device.codes.get(0), SNOMED_URI));
-    deviceResource.setPatient(new Reference(personEntry.getFullUrl()));
+    deviceResource.setPatient(getPolarisReference(personEntry));
     return newEntry(bundle, deviceResource, device.uuid.toString());
   }
 
@@ -2265,8 +2287,10 @@ public class FhirR4 {
           Encounter encounter) {
 
     SupplyDelivery supplyResource = new SupplyDelivery();
+    supplyResource.setId(supply.uuid.toString());
+    supplyResource.addIdentifier(getPolarisIdentifier(supplyResource));
     supplyResource.setStatus(SupplyDeliveryStatus.COMPLETED);
-    supplyResource.setPatient(new Reference(personEntry.getFullUrl()));
+    supplyResource.setPatient(getPolarisReference(personEntry));
 
     CodeableConcept type = new CodeableConcept();
     type.addCoding()
@@ -2297,14 +2321,8 @@ public class FhirR4 {
    */
   private static BundleEntryComponent provenance(Bundle bundle, Person person, long stopTime) {
     Provenance provenance = new Provenance();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-provenance");
-      provenance.setMeta(meta);
-    }
     for (BundleEntryComponent entry : bundle.getEntry()) {
-      provenance.addTarget(new Reference(entry.getFullUrl()));
+      provenance.addTarget(getPolarisReference(entry));
     }
     provenance.setRecorded(new Date(stopTime));
 
@@ -2343,40 +2361,24 @@ public class FhirR4 {
       providerOrganization.incrementEncounters(EncounterType.VIRTUAL, Utilities.getYear(stopTime));
     }
 
-    String clinicianDisplay = clinician.getFullname();
-
-    String practitionerFullUrl = TRANSACTION_BUNDLE
-            ? ExportHelper.buildFhirNpiSearchUrl(clinician)
-            : findPractitioner(clinician, bundle);
-
-    String organizationFullUrl = TRANSACTION_BUNDLE
-            ? ExportHelper.buildFhirSearchUrl("Organization",
-                    providerOrganization.getResourceID())
-            : findProviderUrl(providerOrganization, bundle);
+    Reference practitionerReference = findPolarisPractitionerRole(clinician, bundle);
+    Reference organizationReference = findPolarisProvider(providerOrganization, bundle);
 
     // Provenance Author...
     ProvenanceAgentComponent agent = provenance.addAgent();
     agent.setType(mapCodeToCodeableConcept(
         new Code("http://terminology.hl7.org/CodeSystem/provenance-participant-type",
             "author", "Author"), null));
-    agent.setWho(new Reference()
-        .setReference(practitionerFullUrl)
-        .setDisplay(clinicianDisplay));
-    agent.setOnBehalfOf(new Reference()
-        .setReference(organizationFullUrl)
-        .setDisplay(providerOrganization.name));
+    agent.setWho(practitionerReference);
+    agent.setOnBehalfOf(organizationReference);
 
     // Provenance Transmitter...
     agent = provenance.addAgent();
     agent.setType(mapCodeToCodeableConcept(
         new Code("http://hl7.org/fhir/us/core/CodeSystem/us-core-provenance-participant-type",
             "transmitter", "Transmitter"), null));
-    agent.setWho(new Reference()
-        .setReference(practitionerFullUrl)
-        .setDisplay(clinicianDisplay));
-    agent.setOnBehalfOf(new Reference()
-        .setReference(organizationFullUrl)
-        .setDisplay(providerOrganization.name));
+    agent.setWho(practitionerReference);
+    agent.setOnBehalfOf(getPolarisOrganizationReference());
 
     // NOTE: this assumes only one Provenance per bundle.
     // If that assumption is ever not true, change the timestamp used and/or key here
@@ -2389,23 +2391,15 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           HealthRecord.Entry immunization) {
     Immunization immResource = new Immunization();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization");
-      immResource.setMeta(meta);
-    }
+    immResource.setId(immunization.uuid.toString());
 
-    immResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/immunization-identifier")
-        .setValue(immResource.getId());
+    immResource.addIdentifier(getPolarisIdentifier(immResource));
 
     immResource.setStatus(ImmunizationStatus.COMPLETED);
     immResource.setOccurrence(convertFhirDateTime(immunization.start, true));
     immResource.setVaccineCode(mapCodeToCodeableConcept(immunization.codes.get(0), CVX_URI));
     immResource.setPrimarySource(true);
-    immResource.setPatient(new Reference(personEntry.getFullUrl()));
-    immResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    immResource.setPatient(getPolarisReference(personEntry));
     if (USE_US_CORE_IG) {
       org.hl7.fhir.r4.model.Encounter encounterResource =
           (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
@@ -2413,7 +2407,7 @@ public class FhirR4 {
     }
 
     BundleEntryComponent immunizationEntry =
-        newEntry(bundle, immResource, immunization.uuid.toString());
+        newEntry(bundle, immResource, immResource.getId());
     immunization.fullUrl = immunizationEntry.getFullUrl();
 
     return immunizationEntry;
@@ -2434,23 +2428,11 @@ public class FhirR4 {
       Person person, BundleEntryComponent personEntry, Bundle bundle,
       BundleEntryComponent encounterEntry, Encounter encounter, Medication medication) {
     MedicationRequest medicationResource = new MedicationRequest();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest");
-      medicationResource.setMeta(meta);
+    medicationResource.setId(medication.uuid.toString());
 
-      Code category = new Code("http://terminology.hl7.org/CodeSystem/medicationrequest-category",
-          "community", "Community");
-      medicationResource.addCategory(mapCodeToCodeableConcept(category, null));
-    }
+    medicationResource.setSubject(getPolarisReference(personEntry));
 
-    medicationResource.setSubject(new Reference(personEntry.getFullUrl()));
-    medicationResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
-
-    medicationResource.addIdentifier()
-        .setSystem("https://fhir.apps.health/" + polarisInstance + "/NamingSystem/medicationrequest-identifier")
-        .setValue(medicationResource.getId());
+    medicationResource.addIdentifier(getPolarisIdentifier(medicationResource));
 
     Code code = medication.codes.get(0);
     String system = code.system.equals("SNOMED-CT")
@@ -2467,16 +2449,14 @@ public class FhirR4 {
       // 'administration' flag is an arbitrary way to decide without flipping a coin.
       org.hl7.fhir.r4.model.Medication drugResource =
           new org.hl7.fhir.r4.model.Medication();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication");
-      drugResource.setMeta(meta);
       drugResource.setCode(medicationCodeableConcept);
       drugResource.setStatus(MedicationStatus.ACTIVE);
       String drugUUID = ExportHelper.buildUUID(person, medication.start,
           "Medication Resource for " + medication.uuid);
+      drugResource.setId(drugUUID);
+      drugResource.addIdentifier(getPolarisIdentifier(drugResource));
       BundleEntryComponent drugEntry = newEntry(bundle, drugResource, drugUUID);
-      medicationResource.setMedication(new Reference(drugEntry.getFullUrl()));
+      medicationResource.setMedication(getPolarisReference(drugEntry));
 
       // Set the MedicationRequest.category
       EncounterType type = EncounterType.fromString(encounter.type);
@@ -2513,9 +2493,7 @@ public class FhirR4 {
 
       BundleEntryComponent reasonCondition = findConditionResourceByCode(bundle, reason.code);
       if (reasonCondition != null) {
-        medicationResource.addReasonReference()
-          .setReference(reasonCondition.getFullUrl())
-          .setDisplay(reason.display);
+        medicationResource.addReasonReference(getPolarisReference(reasonCondition));
       } else {
         // we didn't find a matching Condition,
         // fallback to just reason code
@@ -2588,7 +2566,7 @@ public class FhirR4 {
     }
 
     BundleEntryComponent medicationEntry =
-        newEntry(bundle, medicationResource, medication.uuid.toString());
+        newEntry(bundle, medicationResource, medicationResource.getId());
 
     if (shouldExport(org.hl7.fhir.r4.model.Claim.class)) {
       // create new claim for medication
@@ -2623,8 +2601,8 @@ public class FhirR4 {
 
     MedicationAdministration medicationResource = new MedicationAdministration();
 
-    medicationResource.setSubject(new Reference(personEntry.getFullUrl()));
-    medicationResource.setContext(new Reference(encounterEntry.getFullUrl()));
+    medicationResource.setSubject(getPolarisReference(personEntry));
+    medicationResource.setContext(getPolarisReference(encounterEntry));
 
     Code code = medication.codes.get(0);
     String system = code.system.equals("SNOMED-CT") ? SNOMED_URI : RXNORM_URI;
@@ -2667,9 +2645,7 @@ public class FhirR4 {
 
       BundleEntryComponent reasonCondition = findConditionResourceByCode(bundle, reason.code);
       if (reasonCondition != null) {
-        medicationResource.addReasonReference()
-          .setReference(reasonCondition.getFullUrl())
-          .setDisplay(reason.display);
+        medicationResource.addReasonReference(getPolarisReference(reasonCondition));
       } else {
         // we didn't find a matching Condition,
         // fallback to just reason code
@@ -2681,6 +2657,8 @@ public class FhirR4 {
 
     String medicationAdminUUID = ExportHelper.buildUUID(person, medication.start,
         "MedicationAdministration for " + medication.uuid);
+    medicationResource.setId(medicationAdminUUID);
+    medicationResource.addIdentifier(getPolarisIdentifier(medicationResource));
     BundleEntryComponent medicationAdminEntry =
         newEntry(bundle, medicationResource, medicationAdminUUID);
     return medicationAdminEntry;
@@ -2699,18 +2677,13 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           Report report) {
     DiagnosticReport reportResource = new DiagnosticReport();
+    reportResource.setId(report.uuid.toString());
     boolean labsOnly = true;
     for (Observation observation : report.observations) {
       labsOnly = labsOnly && observation.category.equalsIgnoreCase("laboratory");
     }
-    reportResource.addIdentifier()
-        .setSystem("http://fhir.apps.health/" + polarisInstance + "/NamingSystem/diagnosticreport-identifier")
-        .setValue(report.uuid.toString());
+    reportResource.addIdentifier(getPolarisIdentifier(reportResource));
     if (labsOnly && USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab");
-      reportResource.setMeta(meta);
       org.hl7.fhir.r4.model.Encounter encounterResource =
           (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
       reportResource.addPerformer(encounterResource.getServiceProvider());
@@ -2721,21 +2694,20 @@ public class FhirR4 {
           new Coding("http://terminology.hl7.org/CodeSystem/v2-0074", "LAB", "Laboratory")));
     }
     reportResource.setCode(mapCodeToCodeableConcept(report.codes.get(0), LOINC_URI));
-    reportResource.setSubject(new Reference(personEntry.getFullUrl()));
-    reportResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    reportResource.setSubject(getPolarisReference(personEntry));
     reportResource.setEffective(convertFhirDateTime(report.start, true));
     reportResource.setIssued(new Date(report.start));
 
     if (shouldExport(org.hl7.fhir.r4.model.Observation.class)) {
       // if observations are not exported, we can't reference them
       for (Observation observation : report.observations) {
-        Reference reference = new Reference(observation.fullUrl);
+        Reference reference = getPolarisReference("Observation", observation.uuid.toString());
         reference.setDisplay(observation.codes.get(0).display);
         reportResource.addResult(reference);
       }
     }
 
-    return newEntry(bundle, reportResource, report.uuid.toString());
+    return newEntry(bundle, reportResource, reportResource.getId());
   }
 
   /**
@@ -2759,20 +2731,13 @@ public class FhirR4 {
 
     // Add a DiagnosticReport
     DiagnosticReport reportResource = new DiagnosticReport();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note");
-      reportResource.setMeta(meta);
-    }
     reportResource.setStatus(DiagnosticReportStatus.FINAL);
     reportResource.addCategory(new CodeableConcept(
         new Coding(LOINC_URI, "34117-2", "History and physical note")));
     reportResource.getCategoryFirstRep().addCoding(
         new Coding(LOINC_URI, "51847-2", "Evaluation + Plan note"));
     reportResource.setCode(reportResource.getCategoryFirstRep());
-    reportResource.setSubject(new Reference(personEntry.getFullUrl()));
-    reportResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    reportResource.setSubject(getPolarisReference(personEntry));
     reportResource.setEffective(encounter.getPeriod().getStartElement());
     reportResource.setIssued(encounter.getPeriod().getStart());
     if (encounter.hasParticipant()) {
@@ -2789,20 +2754,13 @@ public class FhirR4 {
     // IMPORTANT: if this function is called more than once per encounter, change here and below!
     String reportUUID = ExportHelper.buildUUID(person, 0,
         "DiagnosticReport for note on encounter " + encounter.getId());
+    reportResource.setId(reportUUID);
+    reportResource.addIdentifier(getPolarisIdentifier(reportResource));
     newEntry(bundle, reportResource, reportUUID);
 
     if (shouldExport(DocumentReference.class)) {
       // Add a DocumentReference
       DocumentReference documentReference = new DocumentReference();
-      documentReference.addIdentifier()
-          .setSystem("http://fhir.apps.health/" + polarisInstance + "/NamingSystem/documentreference-identifier")
-          .setValue(documentReference.getId());
-      if (USE_US_CORE_IG) {
-        Meta meta = new Meta();
-        meta.addProfile(
-            "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference");
-        documentReference.setMeta(meta);
-      }
       if (currentNote) {
         documentReference.setStatus(DocumentReferenceStatus.CURRENT);
       } else {
@@ -2815,7 +2773,7 @@ public class FhirR4 {
       documentReference.addCategory(new CodeableConcept(
           new Coding("http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
               "clinical-note", "Clinical Note")));
-      documentReference.setSubject(new Reference(personEntry.getFullUrl()));
+      documentReference.setSubject(getPolarisReference(personEntry));
       documentReference.setDate(encounter.getPeriod().getStart());
       documentReference.addAuthor(reportResource.getPerformerFirstRep());
       documentReference.setCustodian(encounter.getServiceProvider());
@@ -2830,6 +2788,8 @@ public class FhirR4 {
 
       String documentUUID = ExportHelper.buildUUID(person, 0,
           "DocumentReference for note on encounter " + encounter.getId());
+      documentReference.setId(documentUUID);
+      documentReference.addIdentifier(getPolarisIdentifier(documentReference));
 
       newEntry(bundle, documentReference, documentUUID);
     }
@@ -2850,23 +2810,14 @@ public class FhirR4 {
           BundleEntryComponent personEntry, Bundle bundle, BundleEntryComponent encounterEntry,
           Provider provider, BundleEntryComponent careTeamEntry, CarePlan carePlan) {
     org.hl7.fhir.r4.model.CarePlan careplanResource = new org.hl7.fhir.r4.model.CarePlan();
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan");
-      careplanResource.setMeta(meta);
-      careplanResource.addCategory(mapCodeToCodeableConcept(
-          new Code("http://hl7.org/fhir/us/core/CodeSystem/careplan-category", "assess-plan",
-              null), null));
-    }
+    careplanResource.setId(carePlan.uuid.toString());
+    careplanResource.addIdentifier(getPolarisIdentifier(careplanResource));
 
     String narrative = "Care Plan for ";
     careplanResource.setIntent(CarePlanIntent.ORDER);
-    careplanResource.setSubject(new Reference(personEntry.getFullUrl()));
-    careplanResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    careplanResource.setSubject(getPolarisReference(personEntry));
     if (careTeamEntry != null) {
-      careplanResource.addCareTeam(new Reference(careTeamEntry.getFullUrl()));
+      careplanResource.addCareTeam(getPolarisReference(careTeamEntry));
     }
 
     Code code = carePlan.codes.get(0);
@@ -2900,13 +2851,13 @@ public class FhirR4 {
 
       reasonCondition = findConditionResourceByCode(bundle, reason.code);
       if (reasonCondition != null) {
-        careplanResource.addAddresses().setReference(reasonCondition.getFullUrl());
+        careplanResource.addAddresses(getPolarisReference(reasonCondition));
       }
     }
 
     if (!carePlan.activities.isEmpty()) {
       narrative += "<br/>Activities: <ul>";
-      String locationUrl = findLocationUrl(provider, bundle);
+      Reference locationReference = findLocationPolarisReference(provider, bundle);
 
       for (Code activity : carePlan.activities) {
         narrative += "<li>" + code.display + "</li>";
@@ -2915,14 +2866,12 @@ public class FhirR4 {
             new CarePlanActivityDetailComponent();
 
         activityDetailComponent.setStatus(activityStatus);
-        activityDetailComponent.setLocation(new Reference()
-            .setReference(locationUrl)
-            .setDisplay(provider.name));
+        activityDetailComponent.setLocation(locationReference);
 
         activityDetailComponent.setCode(mapCodeToCodeableConcept(activity, SNOMED_URI));
 
         if (reasonCondition != null) {
-          activityDetailComponent.addReasonReference().setReference(reasonCondition.getFullUrl());
+          activityDetailComponent.addReasonReference(getPolarisReference(reasonCondition));
         } else if (reason != null) {
           activityDetailComponent.addReasonCode(mapCodeToCodeableConcept(reason, SNOMED_URI));
           addTranslation("ICD10-CM", reason, activityDetailComponent.getReasonCodeFirstRep(),
@@ -2940,7 +2889,7 @@ public class FhirR4 {
     for (JsonObject goal : carePlan.goals) {
       BundleEntryComponent goalEntry =
           careGoal(person, bundle, personEntry, carePlan.start, goalStatus, goal);
-      careplanResource.addGoal().setReference(goalEntry.getFullUrl());
+      careplanResource.addGoal(getPolarisReference(goalEntry));
     }
 
     careplanResource.setText(new Narrative().setStatus(NarrativeStatus.GENERATED)
@@ -2963,15 +2912,9 @@ public class FhirR4 {
       CodeableConcept goalStatus, JsonObject goal) {
 
     Goal goalResource = new Goal();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal");
-      goalResource.setMeta(meta);
-    }
     goalResource.setLifecycleStatus(GoalLifecycleStatus.ACCEPTED);
     goalResource.setAchievementStatus(goalStatus);
-    goalResource.setSubject(new Reference(personEntry.getFullUrl()));
+    goalResource.setSubject(getPolarisReference(personEntry));
 
     if (goal.has("text")) {
       CodeableConcept descriptionCodeableConcept = new CodeableConcept();
@@ -3023,7 +2966,7 @@ public class FhirR4 {
 
           BundleEntryComponent reasonCondition = findConditionResourceByCode(bundle, reasonCode);
           if (reasonCondition != null) {
-            goalResource.addAddresses().setReference(reasonCondition.getFullUrl());
+            goalResource.addAddresses(getPolarisReference(reasonCondition));
           }
         }
       }
@@ -3053,13 +2996,6 @@ public class FhirR4 {
 
     CareTeam careTeam = new CareTeam();
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam");
-      careTeam.setMeta(meta);
-    }
-
     Period period = new Period().setStart(new Date(carePlan.start));
     careTeam.setPeriod(period);
     if (carePlan.stop != 0L) {
@@ -3068,8 +3004,7 @@ public class FhirR4 {
     } else {
       careTeam.setStatus(CareTeamStatus.ACTIVE);
     }
-    careTeam.setSubject(new Reference(personEntry.getFullUrl()));
-    careTeam.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    careTeam.setSubject(getPolarisReference(personEntry));
 
     if (carePlan.reasons != null && !carePlan.reasons.isEmpty()) {
       for (Code code : carePlan.reasons) {
@@ -3088,9 +3023,7 @@ public class FhirR4 {
             "Patient"),
         SNOMED_URI));
     Patient patient = (Patient) personEntry.getResource();
-    participant.setMember(new Reference()
-        .setReference(personEntry.getFullUrl())
-        .setDisplay(patient.getNameFirstRep().getNameAsSingleString()));
+    participant.setMember(getPolarisReference(patient));
 
     org.hl7.fhir.r4.model.Encounter encounter =
         (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
@@ -3119,6 +3052,8 @@ public class FhirR4 {
 
     String careTeamUUID = ExportHelper.buildUUID(person, carePlan.start,
         "CareTeam for CarePlan " + carePlan.uuid);
+    careTeam.setId(careTeamUUID);
+    careTeam.addIdentifier(getPolarisIdentifier(careTeam));
 
     return newEntry(bundle, careTeam, careTeamUUID);
   }
@@ -3148,8 +3083,7 @@ public class FhirR4 {
 
     imagingStudyResource.addIdentifier(generateIdentifier(imagingStudy.dicomUid));
     imagingStudyResource.setStatus(ImagingStudyStatus.AVAILABLE);
-    imagingStudyResource.setSubject(new Reference(personEntry.getFullUrl()));
-    imagingStudyResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    imagingStudyResource.setSubject(getPolarisReference(personEntry));
     if (USE_US_CORE_IG) {
       org.hl7.fhir.r4.model.Encounter encounterResource =
           (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
@@ -3247,8 +3181,7 @@ public class FhirR4 {
     }
     mediaResource.setType(mapCodeToCodeableConcept(mediaType, MEDIA_TYPE_URI));
     mediaResource.setStatus(MediaStatus.COMPLETED);
-    mediaResource.setSubject(new Reference(personEntry.getFullUrl()));
-    mediaResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
+    mediaResource.setSubject(getPolarisReference(personEntry));
 
     Attachment content = (Attachment) obs.value;
     org.hl7.fhir.r4.model.Attachment contentResource = new org.hl7.fhir.r4.model.Attachment();
@@ -3284,12 +3217,6 @@ public class FhirR4 {
   protected static BundleEntryComponent provider(Bundle bundle,
           Provider provider) {
     Organization organizationResource = new Organization();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization");
-      organizationResource.setMeta(meta);
-    }
 
     List<CodeableConcept> organizationType = new ArrayList<CodeableConcept>();
     organizationType.add(
@@ -3354,12 +3281,6 @@ public class FhirR4 {
   protected static org.hl7.fhir.r4.model.Location providerLocation(
           Bundle bundle, Provider provider) {
     org.hl7.fhir.r4.model.Location location = new org.hl7.fhir.r4.model.Location();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-location");
-      location.setMeta(meta);
-    }
     location.setStatus(LocationStatus.ACTIVE);
     location.setName(provider.name);
     // set telecom
@@ -3391,33 +3312,22 @@ public class FhirR4 {
     location.addIdentifier()
         .setSystem(SYNTHEA_IDENTIFIER)
         .setValue(provider.getResourceLocationID());
-    location.addIdentifier()
-        .setSystem("http://fhir.apps.health/" + polarisInstance + "/NamingSystem/location-identifier")
-        .setValue(provider.getResourceLocationID());
-    Identifier organizationIdentifier = new Identifier()
-        .setSystem(SYNTHEA_IDENTIFIER)
-        .setValue(provider.getResourceID());
-    location.setManagingOrganization(new Reference()
-        .setIdentifier(organizationIdentifier)
-        .setDisplay(provider.name));
+    location.setManagingOrganization(getPolarisOrganizationReference());
+    location.setId(provider.getResourceLocationID());
+    location.addIdentifier(getPolarisIdentifier(location));
     return location;
   }
 
   /**
-   * Map the clinician into a FHIR Practitioner resource, and add it to the given Bundle.
+   * Map the clinician into a FHIR Practitioner and PractitionerRole resource, and add it to the given Bundle.
    * @param bundle The Bundle to add to
    * @param clinician The clinician
-   * @return The added Entry
+   * @return The added PractitionerRole Entry or the Practitioner Entry if US Core IG is not used
    */
   protected static BundleEntryComponent practitioner(Bundle bundle,
           Clinician clinician) {
     Practitioner practitionerResource = new Practitioner();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner");
-      practitionerResource.setMeta(meta);
-    }
+    practitionerResource.setId(clinician.getResourceID());
     practitionerResource.addIdentifier()
             .setSystem("http://hl7.org/fhir/sid/us-npi")
             .setValue(clinician.npi);
@@ -3426,9 +3336,7 @@ public class FhirR4 {
             .setType(mapCodeToCodeableConcept(pracId, "http://terminology.hl7.org/CodeSystem/v2-0203"))
             .setSystem("https://fhir.infoway-inforoute.ca/NamingSystem/ca-ab-practitioner-id-ahcip")
             .setValue(clinician.npi);
-    practitionerResource.addIdentifier()
-            .setSystem("http://fhir.apps.health/" + polarisInstance + "/NamingSystem/practitioner-identifier")
-            .setValue(clinician.getResourceID());
+    practitionerResource.addIdentifier(getPolarisIdentifier(practitionerResource));
     practitionerResource.setActive(true);
     practitionerResource.addName().setFamily(
         (String) clinician.attributes.get(Clinician.LAST_NAME))
@@ -3462,25 +3370,12 @@ public class FhirR4 {
       practitionerResource.setGender(AdministrativeGender.FEMALE);
     }
     BundleEntryComponent practitionerEntry =
-        newEntry(bundle, practitionerResource, clinician.getResourceID());
-
+        newEntry(bundle, practitionerResource, practitionerResource.getId());
     if (USE_US_CORE_IG) {
       // generate an accompanying PractitionerRole resource
       PractitionerRole practitionerRole = new PractitionerRole();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitionerrole");
-      practitionerRole.setMeta(meta);
-      practitionerRole.setPractitioner(new Reference()
-          .setIdentifier(new Identifier()
-                  .setSystem("http://hl7.org/fhir/sid/us-npi")
-                  .setValue(clinician.npi))
-          .setDisplay(practitionerResource.getNameFirstRep().getNameAsSingleString()));
-      practitionerRole.setOrganization(new Reference()
-          .setIdentifier(new Identifier()
-                  .setSystem(SYNTHEA_IDENTIFIER)
-                  .setValue(clinician.getOrganization().getResourceID()))
-          .setDisplay(clinician.getOrganization().name));
+      practitionerRole.setPractitioner(getPolarisReference(practitionerResource));
+      practitionerRole.setOrganization(getPolarisOrganizationReference());
       practitionerRole.addCode(
           mapCodeToCodeableConcept(
               new Code("http://nucc.org/provider-taxonomy", "208D00000X", "General Practice Physician"),
@@ -3494,6 +3389,8 @@ public class FhirR4 {
                   .setSystem(SYNTHEA_IDENTIFIER)
                   .setValue(clinician.getOrganization().getResourceLocationID()))
           .setDisplay(clinician.getOrganization().name);
+      practitionerRole.addLocation()
+          .setIdentifier(getPolarisIdentifier("Location", clinician.getOrganization().getResourceLocationID()));
       if (clinician.getOrganization().phone != null
           && !clinician.getOrganization().phone.isEmpty()) {
         practitionerRole.addTelecom(new ContactPoint()
@@ -3508,8 +3405,10 @@ public class FhirR4 {
       String uuid = ExportHelper.buildUUID(origUUID.getLeastSignificantBits(),
           origUUID.getMostSignificantBits(),
           "PractitionerRole for Clinician " + origUUID);
+      practitionerRole.setId(uuid);
+      practitionerRole.addIdentifier(getPolarisIdentifier(practitionerRole));
 
-      newEntry(bundle, practitionerRole, uuid);
+      return newEntry(bundle, practitionerRole, uuid);
     }
 
     return practitionerEntry;
@@ -3660,5 +3559,38 @@ public class FhirR4 {
     } else {
       return "urn:uuid:";
     }
+  }
+
+  protected static Identifier getPolarisIdentifier(String resourceType, String resourceId) {
+    if (resourceId == null || resourceId.isEmpty()) {
+      return null;
+    }
+    Identifier identifier = new Identifier();
+    identifier.setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-" + resourceType.toLowerCase() + "-identifier");
+    identifier.setValue(resourceId);
+    return identifier;
+  }
+
+  protected static Identifier getPolarisIdentifier(Resource resource) {
+    return getPolarisIdentifier(resource.getResourceType().toString(), resource.getId());
+  }
+
+  protected static Reference getPolarisReference(String resourceType, String resourceId) {
+    return new Reference().setIdentifier(getPolarisIdentifier(resourceType, resourceId));
+  }
+
+  protected static Reference getPolarisReference(Resource resource) {
+    return new Reference().setIdentifier(getPolarisIdentifier(resource));
+  }
+
+  protected static Reference getPolarisReference(BundleEntryComponent entry) {
+    return getPolarisReference(entry.getResource());
+  }
+
+  protected static Reference getPolarisOrganizationReference() {
+    Identifier identifier = new Identifier();
+    identifier.setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-organization-identifier");
+    identifier.setValue(polarisInstance);
+    return new Reference().setIdentifier(identifier);
   }
 }
