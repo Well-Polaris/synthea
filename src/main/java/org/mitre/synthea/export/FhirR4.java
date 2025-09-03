@@ -144,6 +144,7 @@ import org.mitre.synthea.engine.Components;
 import org.mitre.synthea.engine.Components.Attachment;
 import org.mitre.synthea.export.rif.CodeMapper;
 import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.RandomCollection;
 import org.mitre.synthea.helpers.RandomNumberGenerator;
 import org.mitre.synthea.helpers.RandomValueGenerator;
 import org.mitre.synthea.helpers.SimpleCSV;
@@ -251,6 +252,21 @@ public class FhirR4 {
 
   private static final HashSet<Class<? extends Resource>> includedResources = new HashSet<>();
   private static final HashSet<Class<? extends Resource>> excludedResources = new HashSet<>();
+
+  private static RandomCollection<BooleanType> patientActiveStatusDistribution = new RandomCollection<>();
+
+  static {
+    patientActiveStatusDistribution.add(0.6, new BooleanType(true));
+    patientActiveStatusDistribution.add(0.3, new BooleanType(false));
+    patientActiveStatusDistribution.add(0.1, new BooleanType());
+  }
+
+  private static RandomCollection<Boolean> patientGeneralPractititionerDistribution = new RandomCollection<>();
+
+  static {
+    patientGeneralPractititionerDistribution.add(0.9, true);
+    patientGeneralPractititionerDistribution.add(0.1, false);
+  }
 
   static {
     reloadIncludeExclude();
@@ -736,21 +752,28 @@ public class FhirR4 {
     if (Config.get("exporter.fhir.patientStatus") != null) {
       boolean patientStatus = Config.getAsBoolean("exporter.fhir.patientStatus");
       patientResource.setActive(patientStatus);
+    } else {
+      BooleanType active = patientActiveStatusDistribution.next(person);
+      if (active.hasValue()) {
+        patientResource.setActive(active.getValue());
+      }
     }
     
     // Add general practitioner reference if ID was provided via command line
     if (generalPractitionerRolePolarisIdentifier != null && !generalPractitionerRolePolarisIdentifier.isEmpty()) {
       patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", generalPractitionerRolePolarisIdentifier));
     } else if (person.record.encounters.size() > 0) {
-      // Set general practitioner to the first encounter's clinician
-      Reference reference = findPolarisPractitionerRole(person.record.encounters.get(0).clinician, bundle);
-      if (reference != null) {
-        patientResource.addGeneralPractitioner(reference);
-      } else {
-        BundleEntryComponent practitioner = practitioner(bundle, person.record.encounters.get(0).clinician);
-        patientResource.addGeneralPractitioner(getPolarisReference(practitioner));
+      if (patientGeneralPractititionerDistribution.next(person)) {
+        // Set general practitioner to the first encounter's clinician
+        Reference reference = findPolarisPractitionerRole(person.record.encounters.get(0).clinician, bundle);
+        if (reference != null) {
+          patientResource.addGeneralPractitioner(reference);
+        } else {
+          BundleEntryComponent practitioner = practitioner(bundle, person.record.encounters.get(0).clinician);
+          patientResource.addGeneralPractitioner(getPolarisReference(practitioner));
+        }
+        patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", null));
       }
-      patientResource.addGeneralPractitioner(getPolarisReference("PractitionerRole", null));
     }
 
     if (person.attributes.get(Person.IDENTIFIER_PASSPORT) != null) {
