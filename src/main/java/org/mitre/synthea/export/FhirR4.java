@@ -3565,13 +3565,23 @@ public class FhirR4 {
     if (resourceId == null || resourceId.isEmpty()) {
       return null;
     }
+
     Identifier identifier = new Identifier();
-    identifier.setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-" + resourceType.toLowerCase() + "-identifier");
-    identifier.setValue(resourceId);
+    if (resourceType == "Organization") {
+      identifier.setSystem("https://fhir.apps.health/NamingSystem/" + resourceType.toLowerCase() + "-identifier");
+      identifier.setValue(polarisInstance);
+    } else {
+      identifier.setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-" + resourceType.toLowerCase() + "-identifier");
+      identifier.setValue(resourceId);
+    }
+
     return identifier;
   }
 
   protected static Identifier getPolarisIdentifier(Resource resource) {
+    if (resource.getResourceType().toString() == "Organization") {
+      return getPolarisIdentifier(resource.getResourceType().toString(), polarisInstance);
+    }
     return getPolarisIdentifier(resource.getResourceType().toString(), resource.getId());
   }
 
@@ -3589,7 +3599,7 @@ public class FhirR4 {
 
   protected static Reference getPolarisOrganizationReference() {
     Identifier identifier = new Identifier();
-    identifier.setSystem("https://fhir.apps.health/NamingSystem/" + polarisInstance + "-organization-identifier");
+    identifier.setSystem("https://fhir.apps.health/NamingSystem/organization-identifier");
     identifier.setValue(polarisInstance);
     return new Reference().setIdentifier(identifier);
   }
